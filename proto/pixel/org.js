@@ -52,7 +52,7 @@ export class Org {
   }
 
   /** Random but plausible activity: events, new subagents, finished work. */
-  simulate({ spawnEvery = 3.2, finishEvery = 4.2, max = 60 } = {}) {
+  simulate({ spawnEvery = 3.2, finishEvery = 4.2, max = 60, teams = true, rootCap = 4 } = {}) {
     this.stop();
     this.timers.push(setInterval(() => {
       const busy = this.list.filter((a) => a.state === 'working' && a.ready && (a.role === 'worker' || Math.random() < 0.15));
@@ -62,10 +62,10 @@ export class Org {
     }, 260));
     this.timers.push(setInterval(() => {
       if (this.agents.size >= max) return;
-      const leads = this.managers.filter((m) => m.state !== 'done' && m.children.filter((c) => c.role === 'worker').length < (m.role === 'orchestrator' ? 4 : 8));
+      const leads = this.managers.filter((m) => m.state !== 'done' && m.children.filter((c) => c.role === 'worker').length < (m.role === 'orchestrator' ? rootCap : 8));
       if (!leads.length) return;
       const lead = pick(leads);
-      if (Math.random() < 0.18 && lead.depth < 3) {
+      if (teams && Math.random() < 0.18 && lead.depth < 3) {
         const m = this.add(lead, 'manager');
         setTimeout(() => { if (this.agents.has(m.id)) for (let i = 0; i < 2; i++) this.add(m, 'worker'); }, 2500);
       } else this.add(lead, 'worker');
@@ -89,6 +89,9 @@ export class Org {
 }
 
 export const PRESETS = {
+  solo: {
+    label: 'Solo', build(o, r) { o.add(r, 'worker'); },
+  },
   team: {
     label: 'Team', build(o, r) { for (let i = 0; i < 4; i++) o.add(r, 'worker'); },
   },

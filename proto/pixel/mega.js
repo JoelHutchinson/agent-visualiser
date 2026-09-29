@@ -16,7 +16,6 @@ const CW = 21;                   // wing width in tiles (3 corridor + 18 room)
 const RH = 13;                   // team room pitch in tiles (walls shared)
 const EXEC_H = 14;               // executive wing: rows 0..14 (14 = south wall)
 const WING_Y = 18;               // first wing room top wall
-const MIN_GW = 128;              // wide enough for the full executive strip
 const WALL = '#f8f8f8', EDGE = '#3a3a50';
 
 const cv = document.getElementById('screen');
@@ -26,7 +25,7 @@ if (!pack) { document.getElementById('loading').remove(); document.getElementByI
 document.getElementById('credit').textContent = `Office art: ${pack.credit} · people: MetroCity (CC0)`;
 const S = pack.sprites;
 const kit = await createKit(imgs, g);
-const presetName = new URLSearchParams(location.search).get('preset') || 'swarm';
+const presetName = new URLSearchParams(location.search).get('preset') || 'solo';
 document.getElementById('preset').value = presetName;
 
 // ------------------------------------------------------------------- plan
@@ -36,7 +35,8 @@ const rooms = [];             // every walled room, exec ones first
 const wings = [];             // department wings, left to right
 const props = [];             // static furniture: { sprite, x, y, sort, solid? }
 const pods = [];              // desk pods with two seats each
-let GW = MIN_GW, GH = WING_Y + 4;
+const pets = [];              // the studio cat and corgi
+let GW = 32, GH = 18;
 let dirty = true, navDirty = true;
 
 const rect = (x0, y0, x1, y1) => ({ x0, y0, x1, y1 });
@@ -84,99 +84,40 @@ function makeRoom(kind, x0, y0, x1, y1, opts = {}) {
   return r;
 }
 
-function buildExec() {
-  const lobby = makeRoom('lobby', 0, 0, 13, EXEC_H, { floor: 'floorWhiteWood', face: 'faceMarble', name: 'Lobby' });
-  lobby.doors.push([6, EXEC_H], [7, EXEC_H]);
-  const boss = makeRoom('boss', 13, 0, 30, EXEC_H, { floor: 'carpetBrown', face: 'faceMarble', name: 'Orchestrator' });
-  boss.doors.push([21, EXEC_H], [22, EXEC_H]);
-  const war = makeRoom('war', 30, 0, 44, EXEC_H, { floor: 'carpetMauve', face: 'facePlain', name: 'War room' });
-  war.doors.push([36, EXEC_H], [37, EXEC_H]);
-  const brk = makeRoom('break', 44, 0, 58, EXEC_H, { floor: 'floorGreyTile', face: 'faceStone', name: 'Break room' });
-  brk.doors.push([51, EXEC_H], [52, EXEC_H]);
-
-  // Lobby: reception (you), lounge pods, sofa, art.
-  let { ix, iy } = lobby;
-  lobby.desk = addDeskSeat(lobby, 'deskWoodBig', ix + 64, iy + 52);
-  addProp('sofa', ix + 8, iy + 118, { solid: true }); addProp('podBlue', ix + 150, iy + 112, { solid: true }); addProp('podLilac', ix + 170, iy + 112, { solid: true });
-  addProp('plantTall', ix + 2, iy - 10); addProp('plantTall', ix + 174, iy - 10); addProp('artFaces', ix + 84, iy - 26, { sort: iy - 1 });
-  addProp('waterCooler', ix + 176, iy + 40, { solid: true });
-  // Boss office: big desk, shelves, sofa, certificates.
-  ({ ix, iy } = boss);
-  boss.desk = addDeskSeat(boss, 'deskWoodBig', ix + 106, iy + 42);
-  addProp('bookshelf', ix + 12, iy - 20); addProp('bookshelf', ix + 44, iy - 20); addProp('shelfWhite', ix + 208, iy - 14);
-  addProp('certificate', ix + 150, iy - 26, { sort: iy - 1 }); addProp('certificate', ix + 168, iy - 26, { sort: iy - 1 });
-  addProp('sofaL', ix + 8, iy + 104, { solid: true }); addProp('plantTall', ix + 238, iy - 8); addProp('plantBig', ix + 90, iy + 128);
-  addProp('lamp', ix + 146, iy + 40, { sort: iy + 60 });
-  // War room: the orchestrator's own subagents around the table, boards on the wall.
-  ({ ix, iy } = war);
-  war.pods = [addPod(war, ix + 40, iy + 34), addPod(war, ix + 110, iy + 34)];
-  war.seats = war.pods.flatMap((p) => p.seats);
-  addProp('chartBoard', ix + 46, iy - 28, { sort: iy - 1 }); addProp('pieBoard', ix + 118, iy - 28, { sort: iy - 1 });
-  addProp('plantBig', ix + 2, iy - 4); addProp('plantBig', ix + 190, iy - 4); addProp('printer', ix + 170, iy + 130, { solid: true });
-  // Break room: vending, fridge, snacks, tables, sofa.
-  ({ ix, iy } = brk);
-  addProp('vending', ix + 8, iy - 18, { solid: true }); addProp('fridge', ix + 36, iy - 18, { solid: true }); addProp('snacks', ix + 64, iy - 8, { solid: true });
-  addProp('waterCooler', ix + 92, iy - 10, { solid: true });
-  addProp('tableRect', ix + 30, iy + 70, { solid: true }); addProp('chairSideR', ix + 16, iy + 64); addProp('chairSideL', ix + 64, iy + 64);
-  addProp('tableYellow', ix + 110, iy + 70, { solid: true }); addProp('chairSideR', ix + 96, iy + 64); addProp('chairSideL', ix + 144, iy + 64);
-  addProp('sofa', ix + 40, iy + 130, { solid: true }); addProp('plantBig', ix + 140, iy + 124);
-
-  // ---- Facility rooms: where agents go to do particular kinds of work.
-  const plan = makeRoom('plan', 58, 0, 72, EXEC_H, { floor: 'carpetTan', face: 'facePlain', name: 'Planning', color: '#ffb36b' });
-  plan.doors.push([64, EXEC_H], [65, EXEC_H]);
-  const meet = makeRoom('meet', 72, 0, 88, EXEC_H, { floor: 'carpetDark', face: 'faceMarble', name: 'Meeting room', color: '#c79bff' });
-  meet.doors.push([79, EXEC_H], [80, EXEC_H]);
-  const waitR = makeRoom('wait', 88, 0, 100, EXEC_H, { floor: 'floorWhiteWood', face: 'faceMarble', name: 'Waiting room', color: '#8a7cff' });
-  waitR.doors.push([93, EXEC_H], [94, EXEC_H]);
-  const lib = makeRoom('library', 100, 0, 114, EXEC_H, { floor: 'carpetBrown', face: 'faceBrick', name: 'Library', color: '#6ec3ff' });
-  lib.doors.push([106, EXEC_H], [107, EXEC_H]);
-  const srv = makeRoom('server', 114, 0, MIN_GW - 1, EXEC_H, { floor: 'floorGreyTile', face: 'faceStone', name: 'Server room', color: '#8be07b' });
-  srv.doors.push([120, EXEC_H], [121, EXEC_H]);
-
-  // Planning: three boards; ink appears while someone plans in front of one.
-  ({ ix, iy } = plan);
-  plan.spots = [];
-  ['whiteboard', 'whiteboard', 'chartBoard'].forEach((b, i) => {
-    const bx = ix + 12 + i * 70, board = addProp(b, bx, iy - 28, { sort: iy - 1 });
+// ------------------------------------------------------------ furnishing
+// Reusable fit-outs; each registers its activity spots in EXEC.spots.
+function furnishPlanning(room, xs, iy) {
+  xs.forEach((bx, i) => {
+    const board = addProp(i === 2 ? 'chartBoard' : 'whiteboard', bx, iy - 28, { sort: iy - 1 });
     board.ink = [];
     board.draw = (p) => { for (const k of p.ink) kit.px(p.x + k.x, p.y + k.y, k.w, 1, k.c); };
-    plan.spots.push({ x: bx + 15, y: iy + 20, dir: 'up', board, room: plan });
+    EXEC.spots.plan.push({ x: bx + 15, y: iy + 20, dir: 'up', board, room });
   });
-  addProp('tableRect', ix + 90, iy + 110, { solid: true }); addProp('plantBig', ix + 206, iy + 120); addProp('plantSmall', ix + 2, iy + 120);
-  // Meeting room: long table, people gather around it.
-  ({ ix, iy } = meet);
-  addProp('deskWoodBig', ix + 70, iy + 56, { solid: true }); addProp('deskWoodBig', ix + 116, iy + 56, { solid: true });
-  addProp('whiteboard', ix + 100, iy - 28, { sort: iy - 1 }); addProp('plantTall', ix + 4, iy - 8); addProp('plantTall', ix + 222, iy - 8);
-  meet.spots = [];
+}
+function furnishMeeting(room, ox, oy) {
+  addProp('deskWoodBig', ox + 70, oy + 56, { solid: true }); addProp('deskWoodBig', ox + 116, oy + 56, { solid: true });
   for (const [x, y, dir] of [[82, 44, 'down'], [104, 44, 'down'], [128, 44, 'down'], [150, 44, 'down'], [82, 110, 'up'], [104, 110, 'up'], [128, 110, 'up'], [150, 110, 'up'], [58, 78, 'right'], [176, 78, 'left']])
-    meet.spots.push({ x: ix + x, y: iy + y, dir, room: meet });
-  // Waiting room: lounge pods in rows and a queue display.
-  ({ ix, iy } = waitR);
-  waitR.spots = [];
-  ['podBlue', 'podGrey', 'podLilac', 'podGold', 'podBlue', 'podLilac'].forEach((pd, i) => {
-    const x = ix + 16 + (i % 3) * 52, y = iy + 34 + Math.floor(i / 3) * 62;
-    addProp(pd, x, y, { sort: y + 4 });
-    waitR.spots.push({ x: x + 8, y: y + 12, dir: 'down', room: waitR, sit: true });
-  });
-  addCustom(ix + 58, iy - 26, 60, 14, iy - 1, (p) => {
-    const n = waitR.spots.filter((q) => q.user).length;
+    EXEC.spots.meet.push({ x: ox + x, y: oy + y, dir, room });
+}
+function furnishWaiting(room, x0, y0, cols, rows, signX, signY) {
+  const pods = ['podBlue', 'podGrey', 'podLilac', 'podGold'];
+  for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++) {
+    const x = x0 + c * 24, y = y0 + r * 44;
+    addProp(pods[(r * cols + c) % 4], x, y, { sort: y + 4 });
+    EXEC.spots.wait.push({ x: x + 8, y: y + 12, dir: 'down', room, sit: true });
+  }
+  addCustom(signX, signY, 60, 14, signY + 30, (p) => {
+    const n = EXEC.spots.wait.filter((q) => q.user).length;
     kit.px(p.x - 1, p.y - 1, p.w + 2, p.h + 2, EDGE); kit.px(p.x, p.y, p.w, p.h, '#15111f');
     kit.text(`WAITING ${n}`, p.x + 6, p.y + 5, n ? '#ff8f70' : '#6d6680');
   });
-  addProp('waterCooler', ix + 170, iy + 8, { solid: true }); addProp('plantBig', ix + 2, iy + 128);
-  // Library: shelves along the wall and a freestanding row.
-  ({ ix, iy } = lib);
-  lib.spots = [];
-  ['bookshelf', 'bookshelf', 'shelfWhite', 'bookshelf', 'shelfWhite', 'bookshelf'].forEach((b, i) => {
-    const x = ix + 6 + i * 36; addProp(b, x, iy - 20, { sort: iy + 10 });
-    lib.spots.push({ x: x + 15, y: iy + 26, dir: 'up', room: lib });
-  });
-  for (let i = 0; i < 4; i++) { const x = ix + 20 + i * 48; addProp(i % 2 ? 'shelfWhite' : 'bookshelf', x, iy + 72, { solid: true }); lib.spots.push({ x: x + 15, y: iy + 126, dir: 'up', room: lib }); }
-  // Server room: racks with blinking LEDs; red when a run fails.
-  ({ ix, iy } = srv);
-  srv.spots = []; srv.racks = [];
-  for (let i = 0; i < 5; i++) {
-    const x = ix + 10 + i * 36, y = iy + 20;
+}
+function furnishLibrary(room, xs, iy, freeRow = null) {
+  xs.forEach((x, i) => { addProp(i % 3 === 2 ? 'shelfWhite' : 'bookshelf', x, iy - 20, { sort: iy + 10 }); EXEC.spots.lib.push({ x: x + 15, y: iy + 26, dir: 'up', room }); });
+  if (freeRow) freeRow.xs.forEach((x, i) => { addProp(i % 2 ? 'shelfWhite' : 'bookshelf', x, freeRow.y, { solid: true }); EXEC.spots.lib.push({ x: x + 15, y: freeRow.y + 54, dir: 'up', room }); });
+}
+function furnishServer(room, xs, y) {
+  xs.forEach((x, i) => {
     const rack = addCustom(x, y, 22, 44, y + 44, (p) => {
       kit.px(p.x - 1, p.y - 1, p.w + 2, p.h + 2, EDGE); kit.px(p.x, p.y, p.w, p.h, '#2d2f45'); kit.px(p.x + 2, p.y + 2, p.w - 4, 2, '#454864');
       const t = performance.now() / 1000;
@@ -186,13 +127,112 @@ function buildExec() {
         kit.px(p.x + 9 + c * 6, p.y + 8 + r * 6, 3, 1, '#3c3f59');
       }
     }, true);
-    rack.fail = 0; srv.racks.push(rack);
-    srv.spots.push({ x: x + 11, y: y + 62, dir: 'up', room: srv, rack });
-  }
-  addProp('server', ix + 20, iy + 120, { solid: true }); addProp('server', ix + 56, iy + 120, { solid: true });
-  return { lobby, boss, war, brk, plan, meet, wait: waitR, lib, srv };
+    rack.fail = 0; EXEC.racks.push(rack);
+    EXEC.spots.srv.push({ x: x + 11, y: y + 62, dir: 'up', room, rack });
+  });
 }
-const EXEC = buildExec();
+function furnishCoffee(room, x, y) {
+  addProp('vending', x, y, { solid: true }); addProp('fridge', x + 28, y, { solid: true }); addProp('waterCooler', x + 56, y + 8, { solid: true });
+  EXEC.coffee = { x: x + 30, y: y + 46, room };
+}
+
+// ---------------------------------------------------------------- tiers
+// studio: one room (the usual case) · office: compact building · mega: full.
+const TIERS = ['studio', 'office', 'mega'];
+let TIER = 'studio', EXEC, ENTRANCE, CORRIDOR = false, minGW = 32;
+function resetLayout() {
+  rooms.length = 0; wings.length = 0; props.length = 0; pods.length = 0; pets.length = 0;
+  EXEC = { spots: { plan: [], meet: [], wait: [], lib: [], srv: [] }, racks: [] };
+  dirty = true; navDirty = true;
+}
+
+function buildStudio() {
+  CORRIDOR = false; minGW = 32; GW = 32; GH = 18;
+  const r = makeRoom('studio', 0, 0, 31, 17, { floor: 'carpetGrey', face: 'faceMarble', name: 'Studio', color: '#e8b94a' });
+  r.doors.push([4, 17], [5, 17]);
+  ENTRANCE = { x: 80, y: 17 * T + 8 };
+  const { ix, iy } = r;
+  EXEC.bossRoom = EXEC.warRoom = r;
+  EXEC.bossSeat = r.desk = addDeskSeat(r, 'deskWoodBig', ix + 206, iy + 22);
+  addProp('plantTall', ix + 258, iy - 8); addProp('certificate', ix + 214, iy - 26, { sort: iy - 1 }); addProp('lamp', ix + 190, iy + 28, { sort: iy + 50 });
+  const podsS = [addPod(r, ix + 120, iy + 100), addPod(r, ix + 174, iy + 100), addPod(r, ix + 228, iy + 100)];
+  EXEC.warSeats = r.seats = podsS.flatMap((p) => p.seats);
+  furnishPlanning(r, [ix + 40, ix + 90], iy);
+  furnishLibrary(r, [ix + 300, ix + 334], iy);
+  furnishServer(r, [ix + 418, ix + 446], iy + 6);
+  furnishCoffee(r, ix + 380, iy + 150);
+  furnishWaiting(r, ix + 6, iy + 150, 3, 1, ix + 6, iy + 124);
+  EXEC.youSeat = addDeskSeat(r, 'deskTanBig', ix + 90, iy + 168);
+  addProp('artFaces', ix + 150, iy - 26, { sort: iy - 1 }); addProp('plantBig', ix + 2, iy - 6); addProp('plantBig', ix + 462, iy + 120);
+  addProp('sofa', ix + 300, iy + 176, { solid: true });
+  pets.push({ kind: 'corgi', x: ix + 356, y: iy + 214, t: 0 }, { kind: 'cat', x: ix + 200, y: iy + 180, tx: 0, ty: 0, t: 0, rest: 2, flip: false });
+}
+
+function buildBuilding(tier) {
+  CORRIDOR = true;
+  const full = tier === 'mega';
+  // Executive strip: rooms left to right, [kind, name, width in tiles].
+  const plan = full
+    ? [['lobby', 'Lobby', 13], ['boss', 'Orchestrator', 17], ['war', 'War room', 14], ['break', 'Break room', 14], ['plan', 'Planning', 14], ['meet', 'Meeting room', 16], ['wait', 'Waiting room', 12], ['library', 'Library', 14], ['server', 'Server room', 13]]
+    : [['lobby', 'Lobby', 13], ['boss', 'Orchestrator', 17], ['war', 'War room', 14], ['planmeet', 'Planning & meetings', 18], ['commons', 'Commons', 18]];
+  minGW = plan.reduce((s, q) => s + q[2], 0) + 1;
+  GW = Math.max(minGW, 1 + wings.length * CW + 1); GH = WING_Y + 4;
+  ENTRANCE = { x: 6, y: (EXEC_H + 2) * T };
+  const STYLE = {
+    lobby: ['floorWhiteWood', 'faceMarble'], boss: ['carpetBrown', 'faceMarble'], war: ['carpetMauve', 'facePlain'], break: ['floorGreyTile', 'faceStone'],
+    plan: ['carpetTan', 'facePlain'], meet: ['carpetDark', 'faceMarble'], wait: ['floorWhiteWood', 'faceMarble'], library: ['carpetBrown', 'faceBrick'],
+    server: ['floorGreyTile', 'faceStone'], planmeet: ['carpetTan', 'facePlain'], commons: ['floorGreyTile', 'faceStone'],
+  };
+  let x = 0;
+  const R = {};
+  plan.forEach(([kind, name, w], i) => {
+    const x1 = i === plan.length - 1 ? Math.max(x + w, GW - 1) : x + w;
+    const r = makeRoom(kind, x, 0, x1, EXEC_H, { floor: STYLE[kind][0], face: STYLE[kind][1], name });
+    const mid = Math.floor((x + x1) / 2);
+    r.doors.push([mid, EXEC_H], [mid + 1, EXEC_H]);
+    R[kind] = r; x = x1;
+  });
+  let ix, iy;
+  // Lobby: reception (you), sofa, art; in the compact office it doubles as the waiting area.
+  ({ ix, iy } = R.lobby);
+  EXEC.youSeat = R.lobby.desk = addDeskSeat(R.lobby, 'deskWoodBig', ix + 64, iy + 40);
+  addProp('sofa', ix + 8, iy + 124, { solid: true }); addProp('plantTall', ix + 2, iy - 10); addProp('plantTall', ix + 174, iy - 10);
+  addProp('artFaces', ix + 84, iy - 26, { sort: iy - 1 });
+  if (!full) furnishWaiting(R.lobby, ix + 110, iy + 120, 3, 1, ix + 110, iy + 96);
+  // Boss office.
+  ({ ix, iy } = R.boss);
+  EXEC.bossRoom = R.boss; EXEC.bossSeat = R.boss.desk = addDeskSeat(R.boss, 'deskWoodBig', ix + 106, iy + 42);
+  addProp('bookshelf', ix + 12, iy - 20); addProp('bookshelf', ix + 44, iy - 20); addProp('shelfWhite', ix + 208, iy - 14);
+  addProp('certificate', ix + 150, iy - 26, { sort: iy - 1 }); addProp('certificate', ix + 168, iy - 26, { sort: iy - 1 });
+  addProp('sofaL', ix + 8, iy + 104, { solid: true }); addProp('plantTall', ix + 238, iy - 8); addProp('lamp', ix + 146, iy + 40, { sort: iy + 60 });
+  // War room: the orchestrator's own subagents.
+  ({ ix, iy } = R.war);
+  EXEC.warRoom = R.war;
+  const wp = [addPod(R.war, ix + 8, iy + 34), addPod(R.war, ix + 62, iy + 34), addPod(R.war, ix + 116, iy + 34)];
+  EXEC.warSeats = R.war.seats = wp.flatMap((p) => p.seats);
+  addProp('chartBoard', ix + 46, iy - 28, { sort: iy - 1 }); addProp('pieBoard', ix + 118, iy - 28, { sort: iy - 1 }); addProp('plantBig', ix + 190, iy + 120);
+  if (full) {
+    ({ ix, iy } = R.break);
+    furnishCoffee(R.break, ix + 8, iy - 18); addProp('snacks', ix + 92, iy - 8, { solid: true });
+    addProp('tableRect', ix + 30, iy + 80, { solid: true }); addProp('chairSideR', ix + 16, iy + 74); addProp('chairSideL', ix + 64, iy + 74);
+    addProp('sofa', ix + 110, iy + 130, { solid: true }); addProp('plantBig', ix + 190, iy + 124);
+    ({ ix, iy } = R.plan); furnishPlanning(R.plan, [ix + 12, ix + 82, ix + 152], iy); addProp('plantBig', ix + 196, iy + 120);
+    ({ ix, iy } = R.meet); furnishMeeting(R.meet, ix, iy); addProp('whiteboard', ix + 100, iy - 28, { sort: iy - 1 }); addProp('plantTall', ix + 4, iy - 8);
+    ({ ix, iy } = R.wait); furnishWaiting(R.wait, ix + 16, iy + 34, 6, 2, ix + 58, iy - 26); addProp('plantBig', ix + 2, iy + 128);
+    ({ ix, iy } = R.library); furnishLibrary(R.library, [ix + 6, ix + 42, ix + 78, ix + 114, ix + 150, ix + 186], iy, { xs: [ix + 20, ix + 68, ix + 116, ix + 164], y: iy + 72 });
+    ({ ix, iy } = R.server); furnishServer(R.server, [ix + 10, ix + 46, ix + 82, ix + 118, ix + 154], iy + 20); addProp('server', ix + 20, iy + 120, { solid: true });
+  } else {
+    ({ ix, iy } = R.planmeet);
+    furnishPlanning(R.planmeet, [ix + 190, ix + 236], iy);
+    furnishMeeting(R.planmeet, ix - 30, iy + 6); addProp('plantBig', ix + 2, iy - 6);
+    ({ ix, iy } = R.commons);
+    furnishCoffee(R.commons, ix + 8, iy - 18);
+    furnishLibrary(R.commons, [ix + 110, ix + 146], iy);
+    furnishServer(R.commons, [ix + 200, ix + 230], iy + 6);
+    addProp('tableRect', ix + 30, iy + 90, { solid: true }); addProp('chairSideR', ix + 16, iy + 84); addProp('chairSideL', ix + 64, iy + 84);
+    addProp('sofa', ix + 120, iy + 130, { solid: true }); addProp('plantBig', ix + 250, iy + 124);
+  }
+}
 
 function wingFor(dept) {
   let w = wings.find((x) => x.dept === dept);
@@ -200,7 +240,7 @@ function wingFor(dept) {
   const i = wings.length;
   w = { dept, x0: 1 + i * CW, nextY: WING_Y, color: ZONE_COLORS[i % ZONE_COLORS.length], floor: ['carpetGrey', 'carpetDark', 'carpetTan', 'carpetMauve', 'carpetPink', 'carpetBrown'][i % 6] };
   wings.push(w);
-  GW = Math.max(MIN_GW, 1 + wings.length * CW + 1);
+  GW = Math.max(minGW, 1 + wings.length * CW + 1);
   return w;
 }
 function makeTeamRoom(mgr, annex) {
@@ -224,7 +264,7 @@ function makeTeamRoom(mgr, annex) {
 }
 const roomsOf = (mgr) => rooms.filter((r) => r.mgr === mgr);
 function freeSeat(mgr) {
-  if (mgr.role === 'orchestrator') { const s = EXEC.war.seats.find((q) => !q.occupant && !q.reserved); return s ? [EXEC.war, s] : [EXEC.war, EXEC.war.seats[0]]; }
+  if (mgr.role === 'orchestrator') { const s = EXEC.warSeats.find((q) => !q.occupant && !q.reserved); return [EXEC.warRoom, s ?? EXEC.warSeats[0]]; }
   for (const r of roomsOf(mgr)) { const s = r.seats.find((q) => !q.occupant && !q.reserved); if (s) return [r, s]; }
   const r = makeTeamRoom(mgr, true);
   return [r, r.seats[0]];
@@ -250,7 +290,7 @@ function rasterise() {
   // North exterior wall face across the corridor strip is covered by rooms; open the doors.
   for (const r of rooms) for (const [x, y] of r.doors) { cells[at(x, y)] = 1; floorOf[at(x, y)] = 'floorGreyTile'; }
   // Street entrance on the west wall of the main corridor.
-  for (const y of [EXEC_H + 1, EXEC_H + 2]) { cells[at(0, y)] = 1; }
+  if (CORRIDOR) for (const y of [EXEC_H + 1, EXEC_H + 2]) { cells[at(0, y)] = 1; }
 }
 
 // --------------------------------------------------------------- background
@@ -302,7 +342,7 @@ function paintBackground() {
     }
   }
   // Street door marker.
-  b.fillStyle = '#6b5a82'; b.fillRect(0, (EXEC_H + 1) * T, 3, 2 * T);
+  if (CORRIDOR) { b.fillStyle = '#6b5a82'; b.fillRect(0, (EXEC_H + 1) * T, 3, 2 * T); }
   dirty = false;
 }
 
@@ -465,9 +505,10 @@ function drawTag(text, x, y, bgc = '#e8b94a', fg = '#2b1d05') {
 function drawWorld() {
   g.drawImage(bg, 0, 0);
   const list = [];
-  const deskSeats = rooms.map((r) => r.desk).filter(Boolean);
+  const deskSeats = [...new Set([...rooms.map((r) => r.desk), EXEC.youSeat, EXEC.bossSeat].filter(Boolean))];
   for (const p of props) if (!pods.some((q) => q.desk === p) && visible(p.x, p.y, p.s?.width ?? p.w, p.s?.height ?? p.h)) list.push({ y: p.sort, d: () => { if (p.s) g.drawImage(p.s, p.x, p.y); p.draw?.(p); } });
   for (const pod of pods) if (visible(pod.x, pod.y - 10, 60, 70)) list.push({ y: pod.y + 56, d: () => drawPod(pod) });
+  for (const pet of pets) list.push({ y: pet.y, d: () => drawPet(pet) });
   for (const s of deskSeats) list.push({ y: s.desk.y - 1, d: () => drawDeskSeat(s) });
   for (const p of [...people.values(), you]) if (p && !(p.seat && (p.pose === 'sit' || p.hop)) && visible(p.x - 16, p.y - 32, 32, 34)) list.push({ y: p.y, d: () => kit.drawStanding(p) });
   list.sort((a, b) => a.y - b.y).forEach((x) => x.d());
@@ -528,13 +569,14 @@ cv.addEventListener('dblclick', (e) => {
 });
 
 // ------------------------------------------------------------ org events
-const ENTRANCE = { x: 6, y: (EXEC_H + 2) * T };
 org.on('spawn', async (a, { initial }) => {
+  ensureTier();
   let room, seat;
-  if (a.role === 'orchestrator') { room = EXEC.boss; seat = EXEC.boss.desk; }
-  else if (a.role === 'manager') { room = makeTeamRoom(a, false); seat = room.desk; }
   const look = a.role === 'orchestrator' ? BOSS_LOOK : a.role === 'manager' ? MANAGER_LOOKS[a.id % MANAGER_LOOKS.length] : LOOKS[a.id % LOOKS.length];
   const p = await kit.person(look, a.role, a);
+  if (!org.agents.has(a.id)) return;
+  if (a.role === 'orchestrator') { room = EXEC.bossRoom; seat = EXEC.bossSeat; }
+  else if (a.role === 'manager') { room = roomsOf(a)[0] ?? makeTeamRoom(a, false); seat = room.desk; }
   people.set(a.id, p);
   if (a.role === 'worker') { [room, seat] = freeSeat(a.parent); seat.reserved = true; }
   p.room = room;
@@ -546,7 +588,7 @@ org.on('spawn', async (a, { initial }) => {
     const steps = kickoffSteps(p);
     if (a.role === 'manager') { p.kickoffUntil = performance.now() + 9000; steps.push(call(() => sayAt('Kick-off!', screenOf(p), 2))); }
     const until = () => (a.role === 'manager' ? p : lead).kickoffUntil;
-    steps.push(step(() => performance.now() >= until()), call(() => { for (const q of EXEC.meet.spots) if (q.user === p) q.user = null; }));
+    steps.push(step(() => performance.now() >= until()), call(() => { for (const q of EXEC.spots.meet) if (q.user === p) q.user = null; }));
     p.script.push(...steps);
   }
   p.script.push(walkTo(p, () => seat.approach), climbIn(p, seat), call(() => { a.ready = true; p.working = true; }));
@@ -554,12 +596,11 @@ org.on('spawn', async (a, { initial }) => {
 org.on('finish', (a) => {
   const p = people.get(a.id), lead = people.get(a.parent.id);
   if (!p?.seat) return;
-  const brk = EXEC.brk;
   p.script.push(
     climbOut(p, p.seat),
     ...(lead?.seat ? [walkTo(p, () => lead.seat.approach), call(() => { p.dir = 'left'; emote(p, 'yes', 1.2); emote(lead, 'yes', 1.2); }), wait(1.2)] : []),
     // A coffee on the way out.
-    walkTo(p, { x: brk.ix + 20, y: brk.iy + 36 }), call(() => { p.dir = 'up'; }), wait(1.4),
+    walkTo(p, () => EXEC.coffee), call(() => { p.dir = 'up'; }), wait(1.4),
     walkTo(p, ENTRANCE),
     call(() => { people.delete(a.id); org.remove(a); }),
   );
@@ -577,14 +618,16 @@ org.on('state', (a) => { const p = people.get(a.id); if (p) p.working = a.state 
 
 // ------------------------------------------------------------ activities
 // Where each kind of away-from-desk work happens.
-const FACILITY = { plan: EXEC.plan, web: EXEC.lib, run: EXEC.srv, wait: EXEC.wait };
+const FACILITY = { plan: 'plan', web: 'lib', run: 'srv', wait: 'wait' };
 const INK = ['#2f5fd0', '#d23c3c', '#2f9a4a', '#222230'];
 const screenOf = (p) => () => toScreen(p.x, p.y - 36);
 org.on('activity', (a, kind, secs) => {
   const p = people.get(a.id), seat = p?.seat;
   if (!p || !seat || p.script.length || p.pose !== 'sit') return;
-  const room = FACILITY[kind], spot = room.spots.filter((q) => !q.user)[Math.floor(Math.random() * room.spots.length)] ?? room.spots.find((q) => !q.user);
+  const free = EXEC.spots[FACILITY[kind]].filter((q) => !q.user);
+  const spot = free[Math.floor(Math.random() * free.length)];
   if (!spot) return;
+  const room = spot.room;
   spot.user = p; a.ready = false;
   p.script.push(
     climbOut(p, seat), call(() => { seat.reserved = true; p.room = room; }),
@@ -613,14 +656,103 @@ function tickActivity(p, dt) {
 }
 /** A new team meets in the meeting room before going to their desks. */
 function kickoffSteps(p) {
-  const spot = EXEC.meet.spots.find((q) => !q.user);
+  const spot = EXEC.spots.meet.find((q) => !q.user);
   if (!spot) return [];
   spot.user = p;
   return [walkTo(p, spot), call(() => { p.dir = spot.dir; }), wait(0.1)];
 }
 
+
+// ------------------------------------------------------------ growing
+/** Which building the current organisation needs. */
+function tierFor() {
+  const mgrs = org.list.filter((a) => a.role === 'manager').length;
+  const rootWorkers = org.root ? org.root.children.filter((c) => c.role === 'worker').length : 0;
+  if (mgrs === 0 && rootWorkers <= 6) return 'studio';
+  if (mgrs <= 4 && org.list.length <= 30) return 'office';
+  return 'mega';
+}
+let curtain = 0, curtainText = '';
+/** Grow (never shrink mid-session) when the organisation outgrows the building. */
+function ensureTier() {
+  const need = tierFor();
+  if (TIERS.indexOf(need) <= TIERS.indexOf(TIER)) return;
+  relayout(need);
+  if (!org.building) { curtain = 1.6; curtainText = need === 'office' ? 'Moving to a bigger office' : 'Expanding to the whole building'; }
+}
+/** Rebuild the building for a tier and re-seat everyone in it. */
+function relayout(tier) {
+  TIER = tier;
+  resetLayout();
+  if (tier === 'studio') buildStudio(); else buildBuilding(tier);
+  if (tier !== 'studio') for (const a of org.list) if (a.role === 'manager') makeTeamRoom(a, false);
+  for (const a of [...org.list]) {
+    const p = people.get(a.id);
+    if (!p) continue;
+    p.script.length = 0; p.activity = null; p.hop = 0; p.moving = false; p.seat = null; p.kickoffUntil = 0;
+    if (a.state === 'done') { people.delete(a.id); org.remove(a); continue; }
+    let room, seat;
+    if (a.role === 'orchestrator') { room = EXEC.bossRoom; seat = EXEC.bossSeat; }
+    else if (a.role === 'manager') { room = roomsOf(a)[0]; seat = room.desk; }
+    else [room, seat] = freeSeat(a.parent);
+    p.room = room; seatNow(p, seat); a.ready = true; p.working = a.state === 'working';
+  }
+  if (you) seatNow(you, EXEC.youSeat);
+  paintBackground(); buildNav();
+  fitAll(); if (org.building || !started) { cam.x = cam.tx; cam.y = cam.ty; cam.z = cam.tz; }
+}
+function drawCurtain(dt) {
+  if (curtain <= 0) return;
+  curtain = Math.max(0, curtain - dt);
+  const a = Math.min(1, curtain / 0.8);
+  g.setTransform(1, 0, 0, 1, 0, 0);
+  g.globalAlpha = a;
+  g.fillStyle = '#f4c542'; g.fillRect(0, 0, cv.width, cv.height);
+  g.fillStyle = '#2b2438';
+  const off = (performance.now() / 20) % 80;
+  for (let x = -cv.height - 80 + off; x < cv.width; x += 80) { g.beginPath(); g.moveTo(x, cv.height); g.lineTo(x + cv.height, 0); g.lineTo(x + cv.height + 36, 0); g.lineTo(x + 36, cv.height); g.fill(); }
+  const k = 4, w = textWidth(curtainText.toUpperCase(), k) + 40;
+  const x0 = Math.round(cv.width / 2 - w / 2), y0 = Math.round(cv.height / 2 - 30);
+  g.fillStyle = '#0f0c16'; g.fillRect(x0 - 4, y0 - 4, w + 8, 68); g.fillStyle = '#2b2438'; g.fillRect(x0, y0, w, 60);
+  kit.text(curtainText, x0 + 20, y0 + 20, '#e8b94a', k);
+  g.globalAlpha = 1;
+}
+
+// ------------------------------------------------------------------- pets
+const PET_SPR = { cat: 'cat', corgi: 'corgi' };
+function updatePets(dt) {
+  for (const p of pets) {
+    p.t += dt;
+    if (p.kind !== 'cat') continue;
+    if (p.rest > 0) {
+      p.rest -= dt;
+      if (p.rest <= 0) {
+        const r = rooms[0];
+        p.path = findPath(p, { x: r.ix + 20 + Math.random() * (r.iw - 40), y: r.iy + 60 + Math.random() * (r.ih - 70) });
+      }
+      continue;
+    }
+    const n = p.path?.[0];
+    if (!n) { p.rest = 3 + Math.random() * 5; continue; }
+    const dx = n.x - p.x, dy = n.y - p.y, d = Math.hypot(dx, dy);
+    if (d < 1) { p.path.shift(); continue; }
+    const v = Math.min(30 * dt, d); p.x += dx / d * v; p.y += dy / d * v; p.flip = dx > 0;
+  }
+}
+function drawPet(p) {
+  if (p.kind === 'corgi') {
+    kit.px(p.x - 11, p.y - 1, 22, 2, 'rgba(0,0,0,0.2)'); kit.spr('corgi', p.x - 12, p.y - 11);
+    const k = (p.t * 0.6) % 1; g.globalAlpha = 1 - k;
+    kit.px(p.x + 8 + k * 6, p.y - 14 - k * 10, 3, 1, '#fff'); kit.px(p.x + 10 + k * 6, p.y - 13 - k * 10, 1, 1, '#fff'); kit.px(p.x + 8 + k * 6, p.y - 12 - k * 10, 3, 1, '#fff');
+    g.globalAlpha = 1;
+  } else {
+    const hop = p.rest > 0 ? 0 : Math.round(Math.abs(Math.sin(p.t * 12)));
+    kit.px(p.x - 6, p.y - 1, 12, 2, 'rgba(0,0,0,0.2)'); kit.spr('cat', p.x - 8, p.y - 13 - hop, { flip: p.flip });
+  }
+}
+
 // -------------------------------------------------------------------- loop
-let you, mainDev, last = performance.now();
+let you, mainDev, started = false, last = performance.now();
 function frame(now) {
   const dt = Math.min(0.05, (now - last) / 1000); last = now;
   if (!drag) { const k = Math.min(1, dt * 7); cam.x += (cam.tx - cam.x) * k; cam.y += (cam.ty - cam.y) * k; cam.z += (cam.tz - cam.z) * k; }
@@ -628,7 +760,8 @@ function frame(now) {
   if (you) kit.update(you, dt);
   for (const r of rooms) r.flash = Math.max(0, r.flash - dt);
   for (const p of people.values()) tickActivity(p, dt);
-  for (const r of EXEC.srv.racks) r.fail = Math.max(0, r.fail - dt);
+  for (const r of EXEC.racks) r.fail = Math.max(0, r.fail - dt);
+  updatePets(dt);
   kit.tick(dt);
   if (dirty) paintBackground();
   if (navDirty) buildNav();
@@ -636,6 +769,7 @@ function frame(now) {
   g.setTransform(cam.z, 0, 0, cam.z, -cam.x * cam.z, -cam.y * cam.z); g.imageSmoothingEnabled = false;
   drawWorld();
   drawLabels();
+  drawCurtain(dt);
   g.setTransform(1, 0, 0, 1, 0, 0);
   requestAnimationFrame(frame);
 }
@@ -643,7 +777,8 @@ function frame(now) {
 // --------------------------------------------------------------- controls
 function setStatus() {
   const teams = rooms.filter((r) => r.kind === 'team').length;
-  document.getElementById('status').textContent = `Mega office · ${wings.length} wings · ${teams} team rooms · ${org.list.length} agents · ${org.root?.state === 'waiting' ? 'orchestrator waiting for you' : 'working'}`;
+  const label = { studio: 'Studio', office: 'Office', mega: 'Mega office' }[TIER];
+  document.getElementById('status').textContent = `${label} · ${org.list.length} agents${TIER !== 'studio' ? ` · ${teams} team rooms` : ''} · ${org.root?.state === 'waiting' ? 'orchestrator waiting for you' : 'working'} · the building grows as agents spawn`;
 }
 document.getElementById('preset').onchange = (e) => { location.search = '?preset=' + e.target.value; };
 document.getElementById('b-wait').onclick = (e) => { const on = org.root.state !== 'waiting'; org.setWaiting(on); e.target.classList.toggle('on', on); };
@@ -654,16 +789,18 @@ setInterval(setStatus, 1000);
 
 // -------------------------------------------------------------------- go
 resize();
+resetLayout(); buildStudio(); paintBackground(); buildNav();
 org.build(presetName);
 await new Promise((r) => setTimeout(r, 60));
 you = await kit.person(YOU_LOOK, 'you');
-seatNow(you, EXEC.lobby.desk); you.working = true;
+seatNow(you, EXEC.youSeat); you.working = true;
 mainDev = [...people.values()].find((p) => p.agent?.role === 'worker' && p.agent.parent?.role === 'orchestrator');
 paintBackground(); buildNav();
 fitAll(); cam.x = cam.tx; cam.y = cam.ty; cam.z = cam.tz;
 setStatus();
 document.getElementById('loading').remove();
-org.simulate({ max: 70 });
+started = true;
+org.simulate({ max: 70, teams: presetName !== 'solo', rootCap: presetName === 'solo' ? 3 : 4 });
 org.simulateActivities(3.5);
 requestAnimationFrame(frame);
-window.dbg = { org, rooms, wings, people, cam, frameRect, EXEC, pods, findPath, toScreen };
+window.dbg = { org, rooms, wings, people, cam, frameRect, get EXEC() { return EXEC; }, get TIER() { return TIER; }, pods, findPath, toScreen, pets };
