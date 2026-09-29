@@ -1,43 +1,48 @@
-// The only vocabulary the front end understands. Events carry a tool name and
-// a type, never file contents or prompts. Every harness adapter (Claude Code
-// transcripts, OTLP from any agent) maps into this shape.
+// The vocabulary the daemon's adapters speak internally. Events carry a tool
+// name and a type, never file contents or prompts. Every harness adapter
+// (Claude Code transcripts, OTLP from any agent) maps into these shapes; the
+// hub turns them into the wire protocol (protocol.ts) the front end sees.
 
-export type EventType = 'research' | 'code' | 'bug' | 'idle';
+import type { AgentInfo, Counts, EventType } from './protocol.js';
+
+export type { Counts, EventType, ServerMessage } from './protocol.js';
 
 export interface VisEvent {
   type: EventType;
   tool?: string;
+  /** Which agent produced it (an AgentInfo id); the root agent if omitted. */
+  agentId?: string;
   sessionId: string;
   ts: string;
-  /** Which agent produced it, e.g. "claude-code", "codex", "gemini-cli". */
+  /** Which harness produced it, e.g. "claude-code", "codex", "gemini-cli". */
   harness?: string;
   /** Tool-call id, used only to de-duplicate the same call seen through two
    *  channels (transcript + OTel, or OTel logs + spans). Never broadcast. */
   callId?: string;
 }
 
-export interface Counts {
-  research: number;
-  code: number;
-  bug: number;
+/**
+ * What adapters hand to the hub. Beyond counted events they report the agent
+ * tree and raw tool-call lifecycles; the hub owns the timing rules that turn
+ * those into activities (protocol.ts ActivityKind).
+ */
+export type Signal =
+  | { kind: 'event'; event: VisEvent }
+  /** Upsert of one agent (a new subagent, a rename, state 'done'). */
+  | { kind: 'agent'; sessionId: string; agent: AgentInfo; ts: string }
+  /**
+   * A tool call started or ended. Sources that only see completed calls (OTel
+   * spans and logs) send a single 'end' with durationMs and no prior 'start'.
+   */
+  | { kind: 'tool'; sessionId: string; agentId: string; tool: string; callId?: string; op: 'start' | 'end'; ok?: boolean; durationMs?: number; ts: string };
+
+export function signalTs(sig: Signal): string {
+  return sig.kind === 'event' ? sig.event.ts : sig.ts;
 }
 
-/** Messages sent from the daemon (or the in-browser replay) to the scene. */
-export type ServerMessage =
-  | { kind: 'waiting' }
-  | {
-      kind: 'session';
-      sessionId: string;
-      startedAt: string;
-      counts: Counts;
-      idle: boolean;
-      /** Replay speed multiplier; 1 for live sessions. */
-      rate: number;
-      source: 'live' | 'replay';
-      harness?: string;
-    }
-  | { kind: 'event'; event: VisEvent }
-  | { kind: 'ended' };
+export function signalSession(sig: Signal): string {
+  return sig.kind === 'event' ? sig.event.sessionId : sig.sessionId;
+}
 
 export const IDLE_AFTER_MS = 10_000;
 
@@ -138,8 +143,10 @@ export function parseJson(line: string): Record<string, unknown> | null {
 }
 
 /**
- * Map one line to at most one event. Accepts Claude Code transcript lines and
- * lines that are already events.
+ * Map one line to at most one event, ignoring subagents and activities.
+ * Accepts Claude Code transcript lines and lines that are already events.
+ * The daemon itself uses TranscriptParser (transcript.ts); this stays as the
+ * simple stateless mapping.
  */
 export function lineToEvent(line: string): VisEvent | null {
   const obj = parseJson(line);
@@ -148,12 +155,13 @@ export function lineToEvent(line: string): VisEvent | null {
 
 export function objectToEvent(obj: unknown): VisEvent | null {
   if (isVisEvent(obj)) {
-    const { type, tool, sessionId, ts, harness, callId } = obj;
-    return { type, tool, sessionId, ts, harness, callId };
+    const { type, tool, agentId, sessionId, ts, harness, callId } = obj;
+    return { type, tool, agentId, sessionId, ts, harness, callId };
   }
 
   const line = obj as TranscriptLine;
-  // Subagent traffic is out of scope for the MVP.
+  // Stateless mapper: sidechain (subagent) lines need TranscriptParser, which
+  // knows the agent tree.
   if (line.isSidechain) return null;
   const msg = line.message;
   if (!msg || !Array.isArray(msg.content)) return null;
@@ -183,7 +191,7 @@ export function objectToEvent(obj: unknown): VisEvent | null {
   return null;
 }
 
-function isVisEvent(obj: unknown): obj is VisEvent {
+export function isVisEvent(obj: unknown): obj is VisEvent {
   const o = obj as Partial<VisEvent>;
   return (
     typeof o?.ts === 'string' &&

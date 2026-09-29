@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { otlpToEvents, type KeyValue, type OtlpRequest } from '../src/shared/otel.js';
+import { OtelMapper, otlpToEvents, otlpToSignals, type KeyValue, type OtlpRequest } from '../src/shared/otel.js';
 import { parseRecording, toOtlpRecording } from '../src/shared/replay.js';
 
 const kv = (o: Record<string, string | number | boolean>): KeyValue[] =>
@@ -64,7 +64,7 @@ describe('GenAI semantic convention spans', () => {
     ]);
   });
 
-  it('root invoke_agent span end → idle; nested ones are ignored', () => {
+  it('root invoke_agent span end → idle; a nested one is a subagent, not an idle', () => {
     const agent = { name: 'invoke_agent', startTimeUnixNano: T, endTimeUnixNano: T, attributes: kv({ 'gen_ai.operation.name': 'invoke_agent', 'gen_ai.conversation.id': 'c' }) };
     expect(otlpToEvents(spans([agent]))).toMatchObject([{ type: 'idle', sessionId: 'c' }]);
     expect(otlpToEvents(spans([{ ...agent, parentSpanId: 'abcd' }]))).toEqual([]);
@@ -103,5 +103,85 @@ describe('OTLP recordings', () => {
       ['bug', 'Bash', '2026-09-29T10:00:03.000Z'],
       ['idle', undefined, '2026-09-29T10:00:04.000Z'],
     ]);
+  });
+});
+
+const at = (sec: number) => String(BigInt(T) + BigInt(sec) * 1_000_000_000n);
+const iso = (sec: number) => new Date(Date.parse(T_ISO) + sec * 1000).toISOString();
+const agentSpan = (spanId: string, parentSpanId: string | undefined, name: string, start: number, end: number, extra: Record<string, string> = {}) => ({
+  traceId: 'trace1',
+  spanId,
+  parentSpanId,
+  name: `invoke_agent ${name}`,
+  startTimeUnixNano: at(start),
+  endTimeUnixNano: at(end),
+  attributes: kv({ 'gen_ai.operation.name': 'invoke_agent', 'gen_ai.conversation.id': 'conv', 'gen_ai.agent.name': name, ...extra }),
+});
+const toolSpan = (spanId: string, parentSpanId: string | undefined, tool: string, start: number, end: number, callId = spanId) => ({
+  traceId: 'trace1',
+  spanId,
+  parentSpanId,
+  name: `execute_tool ${tool}`,
+  startTimeUnixNano: at(start),
+  endTimeUnixNano: at(end),
+  attributes: kv({ 'gen_ai.operation.name': 'execute_tool', 'gen_ai.tool.name': tool, 'gen_ai.tool.call.id': callId }),
+});
+
+describe('OTel agent hierarchy', () => {
+  // Children end (and are exported) before their parents; the mapper resolves the chain.
+  const trace = [
+    toolSpan('t-root', 'turn', 'Read', 1, 1),
+    toolSpan('t-sub', 'sub', 'Edit', 3, 3),
+    toolSpan('t-deep', 'deep', 'Grep', 5, 5),
+    agentSpan('deep', 'sub', 'Reviewer', 4, 6, { 'gen_ai.agent.id': 'agent-deep' }),
+    agentSpan('sub', 'turn', 'Coder', 2, 8, { 'gen_ai.agent.id': 'agent-sub', 'agent_visualiser.agent.kind': 'code-reviewer' }),
+    agentSpan('turn', undefined, 'Lead', 0, 9),
+  ];
+
+  it('nested invoke_agent spans become agents with parentage, kind and real timestamps', () => {
+    const sigs = otlpToSignals(spans(trace));
+    const agents = sigs.flatMap((s) => (s.kind === 'agent' ? [[s.agent.id, s.agent.parentId, s.agent.name, s.agent.kind, s.agent.state, s.ts]] : []));
+    expect(agents).toEqual([
+      ['conv', null, 'Lead', undefined, 'working', iso(0)],
+      ['agent-sub', 'conv', 'Coder', 'code-reviewer', 'working', iso(2)],
+      ['agent-deep', 'agent-sub', 'Reviewer', undefined, 'working', iso(4)],
+      ['agent-deep', 'agent-sub', 'Reviewer', undefined, 'done', iso(6)],
+      ['agent-sub', 'conv', 'Coder', 'code-reviewer', 'done', iso(8)],
+    ]);
+  });
+
+  it('attributes execute_tool spans to the nearest enclosing agent (root when it is the turn)', () => {
+    const evs = otlpToEvents(spans(trace));
+    expect(evs.filter((e) => e.type !== 'idle').map((e) => [e.tool, e.agentId])).toEqual([
+      ['Read', 'conv'],
+      ['Edit', 'agent-sub'],
+      ['Grep', 'agent-deep'],
+    ]);
+    // Only the root's turn ends in idle.
+    expect(evs.filter((e) => e.type === 'idle')).toHaveLength(1);
+  });
+
+  it('emits tool signals with durations for the hub to time', () => {
+    const sigs = otlpToSignals(spans([toolSpan('a', undefined, 'Bash', 0, 4), toolSpan('b', undefined, 'ToolSearch', 0, 1)]));
+    const t = sigs.flatMap((s) => (s.kind === 'tool' ? [s] : []));
+    expect(t).toMatchObject([{ tool: 'Bash', op: 'end', durationMs: 4000, agentId: 'trace1', ok: true }]);
+  });
+
+  it('remembers parentage across exports (agent seen earlier, its tool arrives later)', () => {
+    const m = new OtelMapper();
+    m.map(spans([agentSpan('sub', 'turn', 'Coder', 2, 8, { 'gen_ai.agent.id': 'agent-sub' })]));
+    const sigs = m.map(spans([toolSpan('late', 'sub', 'Write', 9, 9)]));
+    expect(sigs.flatMap((s) => (s.kind === 'event' ? [s.event.agentId] : []))).toEqual(['agent-sub']);
+  });
+
+  it('falls back to the span id, the span name, and the root when the parent is unknown', () => {
+    const sigs = otlpToSignals(spans([{ ...agentSpan('s9', 'missing', 'X', 1, 2), attributes: kv({ 'gen_ai.operation.name': 'invoke_agent', 'gen_ai.conversation.id': 'conv' }) }]));
+    expect(sigs.flatMap((s) => (s.kind === 'agent' ? [s.agent] : []))[0]).toMatchObject({ id: 's9', parentId: 'conv', name: 'X' });
+  });
+
+  it('vendor logs stay attributed to the root', () => {
+    const sigs = otlpToSignals(logs('codex_cli_rs', { 'event.name': 'codex.tool_result', 'conversation.id': 'cx', tool_name: 'exec_command', call_id: 'c1', success: 'true', duration_ms: 3000 }));
+    expect(sigs.find((s) => s.kind === 'tool')).toMatchObject({ agentId: 'cx', tool: 'exec_command', durationMs: 3000 });
+    expect(sigs.flatMap((s) => (s.kind === 'event' ? [s.event.agentId] : []))).toEqual([undefined]);
   });
 });

@@ -10,7 +10,7 @@ import { LoggerProvider, SimpleLogRecordProcessor, type LogRecordExporter } from
 import { BasicTracerProvider, SimpleSpanProcessor, type SpanExporter } from '@opentelemetry/sdk-trace-base';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { startOtlpGrpc, startOtlpHttp, type OtlpServer } from '../src/daemon/otlp.js';
-import type { VisEvent } from '../src/shared/events.js';
+import type { Signal, VisEvent } from '../src/shared/events.js';
 
 let received: VisEvent[] = [];
 let httpSrv: OtlpServer;
@@ -19,8 +19,10 @@ const HTTP = 44318;
 const GRPC = 44317;
 
 beforeAll(async () => {
-  httpSrv = await startOtlpHttp(HTTP, (e) => received.push(...e));
-  grpcSrv = await startOtlpGrpc(GRPC, (e) => received.push(...e));
+  // The receivers hand the hub signals; these tests look at the counted events.
+  const keep = (sigs: Signal[]) => received.push(...sigs.flatMap((s) => (s.kind === 'event' ? [s.event] : [])));
+  httpSrv = await startOtlpHttp(HTTP, keep);
+  grpcSrv = await startOtlpGrpc(GRPC, keep);
 });
 afterAll(async () => {
   await httpSrv.close();

@@ -1,4 +1,4 @@
-// OTLP → VisEvent. Works for any agent that speaks OpenTelemetry:
+// OTLP → Signals (events, agent hierarchy, tool calls). Works for any agent that speaks OpenTelemetry:
 //
 //  * GenAI semantic conventions (semantic-conventions-genai, semconv v1.44):
 //    `execute_tool {gen_ai.tool.name}` spans and `invoke_agent` spans.
@@ -9,7 +9,9 @@
 // Input is the OTLP/JSON object model (ExportLogsServiceRequest /
 // ExportTraceServiceRequest). The protobuf decoder produces the same shape.
 
-import { classifyTool, type VisEvent } from './events.js';
+import { activityOf } from './activity.js';
+import { classifyTool, type Signal, type VisEvent } from './events.js';
+import { rootAgentId } from './protocol.js';
 
 export interface AnyValue {
   stringValue?: string;
@@ -95,12 +97,10 @@ export function harnessName(serviceName: string | undefined): string | undefined
   return serviceName;
 }
 
+const explicitSession = (a: Attrs) => first(a, 'gen_ai.conversation.id', 'session.id', 'conversation.id', 'thread.id', 'thread_id', 'session_id');
+
 function sessionOf(a: Attrs, fallback?: string): string {
-  return (
-    first(a, 'gen_ai.conversation.id', 'session.id', 'conversation.id', 'thread.id', 'thread_id', 'session_id') ??
-    fallback ??
-    'otel'
-  );
+  return explicitSession(a) ?? fallback ?? 'otel';
 }
 
 function failed(a: Attrs, statusCode?: number | string): boolean {
@@ -119,9 +119,35 @@ function toolEvents(tool: string | undefined, err: boolean, base: Omit<VisEvent,
   return out;
 }
 
+const asEvents = (evs: VisEvent[]): Signal[] => evs.map((event) => ({ kind: 'event', event }));
+
+/**
+ * A finished tool call as signals: its events, plus one 'end' carrying the
+ * duration (OTel reports calls at completion, so the hub cannot time them
+ * live). Only tools the scene can show are forwarded.
+ */
+function toolSignals(tool: string | undefined, err: boolean, base: Omit<VisEvent, 'type' | 'ts'>, startTs: string, endTs: string): Signal[] {
+  const out = asEvents(toolEvents(tool, err, base, startTs, endTs));
+  if (tool && (classifyTool(tool) || activityOf(tool))) {
+    out.push({
+      kind: 'tool',
+      sessionId: base.sessionId,
+      agentId: base.agentId ?? rootAgentId(base.sessionId),
+      tool,
+      callId: base.callId,
+      op: 'end',
+      ok: !err,
+      durationMs: Math.max(0, Date.parse(endTs) - Date.parse(startTs)),
+      ts: endTs,
+    });
+  }
+  return out;
+}
+
 const TOOL_LOG = /(^|\.)(tool_result|tool_call)$/;
 
-export function logToEvents(rec: LogRecord, resource: Attrs): VisEvent[] {
+/** Harness-specific tool logs (claude_code.tool_result, codex.tool_result, gemini_cli.tool_call). Always the root agent. */
+export function logToSignals(rec: LogRecord, resource: Attrs): Signal[] {
   const a = { ...resource, ...attrs(rec.attributes) };
   const name = rec.eventName || first(a, 'event.name') || (typeof anyValue(rec.body) === 'string' ? (anyValue(rec.body) as string) : '');
   if (!TOOL_LOG.test(name)) return [];
@@ -138,49 +164,162 @@ export function logToEvents(rec: LogRecord, resource: Attrs): VisEvent[] {
   };
   const durationMs = Number(a['duration_ms']);
   const startTs = Number.isFinite(durationMs) && durationMs > 0 ? new Date(Date.parse(ts) - durationMs).toISOString() : ts;
-  return toolEvents(tool, failed(a), base, startTs, ts);
+  return toolSignals(tool, failed(a), base, startTs, ts);
 }
 
-export function spanToEvents(span: Span, resource: Attrs): VisEvent[] {
-  const a = { ...resource, ...attrs(span.attributes) };
-  const name = span.name ?? '';
-  const op = str(a['gen_ai.operation.name']);
-  const start = nanosToIso(span.startTimeUnixNano) ?? new Date().toISOString();
-  const end = nanosToIso(span.endTimeUnixNano) ?? start;
-  const base = {
-    sessionId: sessionOf(a, span.traceId),
-    harness: harnessName(str(a['service.name'])),
-  };
-
-  if (op === 'execute_tool' || name.startsWith('execute_tool') || name === 'claude_code.tool') {
-    const tool = first(a, 'gen_ai.tool.name', 'tool_name', 'tool.name') ?? (name.replace(/^execute_tool\s*/, '') || undefined);
-    const callId = first(a, 'gen_ai.tool.call.id', 'tool_use_id', 'call_id');
-    // Claude Code reports failure on the child execution span instead.
-    const err = name === 'claude_code.tool' ? false : failed(a, span.status?.code);
-    return toolEvents(tool, err, { ...base, callId }, start, end);
-  }
-  if (name === 'claude_code.tool.execution') {
-    return failed(a, span.status?.code) ? [{ ...base, type: 'bug', ts: end }] : [];
-  }
-
-  // A finished top-level agent turn means the agent is waiting for input.
-  const turn = op === 'invoke_agent' || name.startsWith('invoke_agent') || name === 'claude_code.interaction';
-  if (turn && !span.parentSpanId) return [{ ...base, type: 'idle', ts: end }];
-  return [];
+/** Where a span sits: which session it belongs to and which agent encloses it. */
+interface SpanInfo {
+  sessionId: string;
+  agentId?: string;
 }
 
-/** All events in one OTLP export, oldest first. */
+type SpanLookup = (spanId: string | undefined) => SpanInfo | undefined;
+
+const MAX_SPANS = 5000;
+const AGENT_KIND_KEYS = ['agent_visualiser.agent.kind', 'gen_ai.agent.kind', 'gen_ai.agent.type'];
+/** Recordings mark agent spans that were still open when the recording ended. */
+export const IN_PROGRESS = 'agent_visualiser.in_progress';
+export const AGENT_KIND_KEY = AGENT_KIND_KEYS[0];
+
+const isAgentSpan = (op: string | undefined, name: string) => op === 'invoke_agent' || name.startsWith('invoke_agent') || name === 'claude_code.interaction';
+
+/**
+ * Turns OTLP exports into Signals. Stateful because a trace is exported in
+ * pieces: it remembers which agent each recent span belonged to, so a tool
+ * span in one export can be attributed through its parent chain to an
+ * `invoke_agent` span seen earlier. Spans in the same export are resolved
+ * together (children usually finish, and are exported, before their parents).
+ *
+ * Hierarchy (GenAI semconv `invoke_agent`): a top-level invoke_agent span is
+ * one turn of the root agent (the session's orchestrator); its end means the
+ * user's move. An invoke_agent nested under another agent's span is a
+ * subagent: id = gen_ai.agent.id (else the span id), name = gen_ai.agent.name,
+ * parent = the enclosing agent. Spans only export once they end, so a live
+ * subagent appears and finishes in the same export; start and end timestamps
+ * are still the real ones. `execute_tool` spans go to the nearest enclosing
+ * agent; tools whose parent span is unknown (exported in an earlier batch and
+ * evicted, or never exported) go to the root, as do all vendor logs.
+ */
+export class OtelMapper {
+  private spans = new Map<string, SpanInfo>();
+
+  map(req: OtlpRequest): Signal[] {
+    const out: Signal[] = [];
+    for (const rl of req.resourceLogs ?? []) {
+      const res = attrs(rl.resource?.attributes);
+      for (const sl of rl.scopeLogs ?? []) for (const rec of sl.logRecords ?? []) out.push(...logToSignals(rec, res));
+    }
+
+    const batch = new Map<string, { span: Span; a: Attrs }>();
+    const all: { span: Span; a: Attrs }[] = [];
+    for (const rs of req.resourceSpans ?? []) {
+      const res = attrs(rs.resource?.attributes);
+      for (const ss of rs.scopeSpans ?? []) {
+        for (const span of ss.spans ?? []) {
+          const entry = { span, a: { ...res, ...attrs(span.attributes) } };
+          all.push(entry);
+          if (span.spanId) batch.set(span.spanId, entry);
+        }
+      }
+    }
+    const resolving = new Set<string>();
+    const info: SpanLookup = (spanId) => {
+      if (!spanId) return undefined;
+      const known = this.spans.get(spanId);
+      if (known) return known;
+      const entry = batch.get(spanId);
+      if (!entry || resolving.has(spanId)) return undefined;
+      resolving.add(spanId);
+      const i = this.resolve(entry.span, entry.a, info);
+      resolving.delete(spanId);
+      this.remember(spanId, i);
+      return i;
+    };
+    for (const { span, a } of all) {
+      const i = info(span.spanId) ?? this.resolve(span, a, info);
+      out.push(...this.signals(span, a, i, info));
+    }
+    return out
+      .map((s, n) => ({ s, n }))
+      .sort((x, y) => Date.parse(signalTime(x.s)) - Date.parse(signalTime(y.s)) || rank(x.s) - rank(y.s) || x.n - y.n)
+      .map((x) => x.s);
+  }
+
+  private resolve(span: Span, a: Attrs, info: SpanLookup): SpanInfo {
+    const parent = info(span.parentSpanId || undefined);
+    const sessionId = explicitSession(a) ?? parent?.sessionId ?? span.traceId ?? 'otel';
+    const op = str(a['gen_ai.operation.name']);
+    if (!isAgentSpan(op, span.name ?? '')) return { sessionId, agentId: parent?.agentId };
+    if (parent?.agentId || (span.parentSpanId && !parent)) {
+      // Nested: a subagent (an unknown parent is assumed to be the orchestrator's turn).
+      return { sessionId, agentId: first(a, 'gen_ai.agent.id') ?? span.spanId ?? `${sessionId}:${span.name}` };
+    }
+    return { sessionId, agentId: rootAgentId(sessionId) };
+  }
+
+  private remember(spanId: string, i: SpanInfo): void {
+    this.spans.set(spanId, i);
+    if (this.spans.size > MAX_SPANS) this.spans.delete(this.spans.keys().next().value!);
+  }
+
+  private signals(span: Span, a: Attrs, i: SpanInfo, info: SpanLookup): Signal[] {
+    if (span.spanId) this.remember(span.spanId, i);
+    const name = span.name ?? '';
+    const op = str(a['gen_ai.operation.name']);
+    const start = nanosToIso(span.startTimeUnixNano) ?? new Date().toISOString();
+    const end = nanosToIso(span.endTimeUnixNano) ?? start;
+    const harness = harnessName(str(a['service.name']));
+    const base = { sessionId: i.sessionId, harness, agentId: i.agentId };
+
+    if (op === 'execute_tool' || name.startsWith('execute_tool') || name === 'claude_code.tool') {
+      const tool = first(a, 'gen_ai.tool.name', 'tool_name', 'tool.name') ?? (name.replace(/^execute_tool\s*/, '') || undefined);
+      const callId = first(a, 'gen_ai.tool.call.id', 'tool_use_id', 'call_id');
+      // Claude Code reports failure on the child execution span instead.
+      const err = name === 'claude_code.tool' ? false : failed(a, span.status?.code);
+      return toolSignals(tool, err, { ...base, callId }, start, end);
+    }
+    if (name === 'claude_code.tool.execution') {
+      return failed(a, span.status?.code) ? asEvents([{ ...base, type: 'bug', ts: end }]) : [];
+    }
+    if (!isAgentSpan(op, name)) return [];
+
+    const inProgress = a[IN_PROGRESS] === 'true' || a[IN_PROGRESS] === true;
+    const rootId = rootAgentId(i.sessionId);
+    if (i.agentId === rootId) {
+      // A finished top-level agent turn means the agent is waiting for input.
+      const out: Signal[] = [];
+      const agentName = first(a, 'gen_ai.agent.name');
+      if (agentName) out.push({ kind: 'agent', sessionId: i.sessionId, agent: { id: rootId, parentId: null, name: agentName, state: 'working', startedAt: start }, ts: start });
+      if (!inProgress) out.push(...asEvents([{ ...base, agentId: undefined, type: 'idle', ts: end }]));
+      return out;
+    }
+
+    const parent = info(span.parentSpanId || undefined);
+    const agent = {
+      id: i.agentId!,
+      parentId: parent?.agentId ?? rootId,
+      name: (first(a, 'gen_ai.agent.name') ?? name.replace(/^invoke_agent\s*/, '')) || 'Agent',
+      kind: first(a, ...AGENT_KIND_KEYS),
+      startedAt: start,
+    };
+    const out: Signal[] = [{ kind: 'agent', sessionId: i.sessionId, agent: { ...agent, state: 'working' }, ts: start }];
+    if (!inProgress) out.push({ kind: 'agent', sessionId: i.sessionId, agent: { ...agent, state: 'done' }, ts: end });
+    return out;
+  }
+}
+
+const signalTime = (s: Signal) => (s.kind === 'event' ? s.event.ts : s.ts);
+/** Order within one instant: agents appear before their work, and finish/idle after it. */
+const rank = (s: Signal) => (s.kind === 'agent' ? (s.agent.state === 'done' ? 2 : 0) : s.kind === 'event' && s.event.type === 'idle' ? 2 : 1);
+
+/** All signals in one OTLP export, oldest first. Stateless convenience wrapper. */
+export function otlpToSignals(req: OtlpRequest): Signal[] {
+  return new OtelMapper().map(req);
+}
+
+/** Just the counted events of an export (bubbles), oldest first. */
 export function otlpToEvents(req: OtlpRequest): VisEvent[] {
-  const out: VisEvent[] = [];
-  for (const rl of req.resourceLogs ?? []) {
-    const res = attrs(rl.resource?.attributes);
-    for (const sl of rl.scopeLogs ?? []) for (const rec of sl.logRecords ?? []) out.push(...logToEvents(rec, res));
-  }
-  for (const rs of req.resourceSpans ?? []) {
-    const res = attrs(rs.resource?.attributes);
-    for (const ss of rs.scopeSpans ?? []) for (const span of ss.spans ?? []) out.push(...spanToEvents(span, res));
-  }
-  return out.sort((x, y) => Date.parse(x.ts) - Date.parse(y.ts));
+  return otlpToSignals(req).flatMap((s) => (s.kind === 'event' ? [s.event] : []));
 }
 
 export function isOtlpRequest(obj: unknown): boolean {
@@ -188,73 +327,9 @@ export function isOtlpRequest(obj: unknown): boolean {
   return !!o && (Array.isArray(o.resourceLogs) || Array.isArray(o.resourceSpans));
 }
 
-// ------------------------------------------------------------- recording
+// ---------------------------------------------------------- serialisation
 
-const kv = (key: string, value: string): KeyValue => ({ key, value: { stringValue: value } });
-const nanos = (iso: string) => (BigInt(Date.parse(iso)) * 1_000_000n).toString();
-const hexId = (bytes: number) =>
+export const kv = (key: string, value: string): KeyValue => ({ key, value: { stringValue: value } });
+export const nanos = (iso: string) => (BigInt(Date.parse(iso)) * 1_000_000n).toString();
+export const hexId = (bytes: number) =>
   Array.from(crypto.getRandomValues(new Uint8Array(bytes)), (b) => b.toString(16).padStart(2, '0')).join('');
-
-/**
- * Serialise events as a standard OTLP/JSON trace export using the GenAI
- * conventions: tool calls become `execute_tool` spans (status ERROR when they
- * failed) and each agent turn an `invoke_agent` span. The file is valid input
- * for any OTLP backend and round-trips through `otlpToEvents`.
- */
-export function eventsToOtlp(events: VisEvent[], startedAt: string): OtlpRequest {
-  const sessionId = events[0]?.sessionId ?? 'recording';
-  const traceId = hexId(16);
-  const spans: Span[] = [];
-  const byCall = new Map<string, Span>();
-  let turnStart = startedAt;
-
-  for (const ev of events) {
-    if (ev.type === 'idle') {
-      spans.push({
-        traceId,
-        spanId: hexId(8),
-        name: 'invoke_agent',
-        startTimeUnixNano: nanos(turnStart),
-        endTimeUnixNano: nanos(ev.ts),
-        attributes: [kv('gen_ai.operation.name', 'invoke_agent'), kv('gen_ai.conversation.id', ev.sessionId)],
-      });
-      turnStart = ev.ts;
-      continue;
-    }
-    const existing = ev.callId ? byCall.get(ev.callId) : undefined;
-    if (ev.type === 'bug' && existing) {
-      existing.endTimeUnixNano = nanos(ev.ts);
-      existing.status = { code: 2 };
-      existing.attributes!.push(kv('error.type', 'tool_error'));
-      continue;
-    }
-    const tool = ev.tool ?? 'unknown';
-    const span: Span = {
-      traceId,
-      spanId: hexId(8),
-      name: `execute_tool ${tool}`,
-      startTimeUnixNano: nanos(ev.ts),
-      endTimeUnixNano: nanos(ev.ts),
-      attributes: [kv('gen_ai.operation.name', 'execute_tool'), kv('gen_ai.tool.name', tool), kv('gen_ai.conversation.id', ev.sessionId)],
-    };
-    if (ev.callId) {
-      span.attributes!.push(kv('gen_ai.tool.call.id', ev.callId));
-      byCall.set(ev.callId, span);
-    }
-    if (ev.type === 'bug') {
-      span.status = { code: 2 };
-      span.attributes!.push(kv('error.type', 'tool_error'));
-    }
-    spans.push(span);
-  }
-
-  const harness = events.find((e) => e.harness)?.harness ?? 'unknown';
-  return {
-    resourceSpans: [
-      {
-        resource: { attributes: [kv('service.name', harness), kv('session.id', sessionId), kv('session.start', startedAt)] },
-        scopeSpans: [{ spans }],
-      },
-    ],
-  };
-}

@@ -1,11 +1,15 @@
-import type { ServerMessage } from '../../src/shared/events.js';
-import { parseRecording, ReplayPlayer } from '../../src/shared/replay.js';
+// Message sources for the front end. All of them speak protocol v2
+// (src/shared/protocol.ts), so the scene cannot tell them apart:
+//   connectDaemon  live websocket to the local daemon (reconnects)
+//   playReplay     a recording played in the browser (`?replay=<url>`)
+//   Simulator      generated activity (`?demo`, hosted demo) in ./sim
+import type { ServerMessage } from '../../../src/shared/protocol';
 
 export type LinkStatus = 'connecting' | 'open' | 'offline';
 
 export interface Feed {
   close(): void;
-  /** Only the in-browser demo can change speed. */
+  /** Only replays can change speed. */
   setSpeed?(speed: number): void;
 }
 
@@ -49,17 +53,14 @@ export function connectDaemon(onMessage: (m: ServerMessage) => void, onStatus: (
   };
 }
 
-/** Hosted demo: play a bundled recording entirely in the browser. */
-export function playDemo(url: string, speed: number, onMessage: (m: ServerMessage) => void, onStatus: (s: LinkStatus) => void): Feed {
-  let player: ReplayPlayer | undefined;
+/** Play a recording (Claude Code transcript, OTLP/JSON, ...) entirely in the browser. */
+export function playReplay(url: string, speed: number, onMessage: (m: ServerMessage) => void, onStatus: (s: LinkStatus) => void): Feed {
+  let player: { start(): void; stop(): void; setSpeed(s: number): void } | undefined;
   let closed = false;
   onStatus('connecting');
-  fetch(url)
-    .then((r) => {
-      if (!r.ok) throw new Error(`HTTP ${r.status}`);
-      return r.text();
-    })
-    .then((text) => {
+  // Loaded on demand: the recording parsers are only needed for replays.
+  Promise.all([fetch(url).then((r) => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.text(); }), import('../../../src/shared/replay')])
+    .then(([text, { parseRecording, ReplayPlayer }]) => {
       if (closed) return;
       player = new ReplayPlayer(parseRecording(text), onMessage, { speed, loop: true });
       onStatus('open');

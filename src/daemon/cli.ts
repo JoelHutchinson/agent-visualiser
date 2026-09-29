@@ -8,9 +8,10 @@ import { parseArgs } from 'node:util';
 import type { ServerMessage } from '../shared/events.js';
 import { parseRecording, ReplayPlayer, toOtlpRecording } from '../shared/replay.js';
 import { Hub } from './hub.js';
+import { OtelMapper } from '../shared/otel.js';
 import { startOtlpGrpc, startOtlpHttp } from './otlp.js';
 import { startServer } from './server.js';
-import { findNewestSession, TranscriptSource } from './transcripts.js';
+import { findNewestSession, readSubagentFiles, TranscriptSource } from './transcripts.js';
 
 const HELP = `agent-visualiser: watch a coding agent's session as a tiny dev studio
 
@@ -34,6 +35,8 @@ Options:
   -s, --speed <n>       replay speed multiplier (default 1)
       --loop            loop the replay
       --no-open         don't open the browser
+      --packs <d>       art packs dir, served at /packs/ (default: $AGENT_VISUALISER_PACKS,
+                        ~/.agent-visualiser/packs, or ./packs in the repo)
       --projects <d>    Claude Code projects dir (default ~/.claude/projects)
   -h, --help
 `;
@@ -50,6 +53,7 @@ const { values, positionals } = parseArgs({
     loop: { type: 'boolean', default: false },
     'no-open': { type: 'boolean', default: false },
     projects: { type: 'string', default: path.join(os.homedir(), '.claude', 'projects') },
+    packs: { type: 'string' },
     out: { type: 'string', short: 'o' },
     help: { type: 'boolean', short: 'h', default: false },
   },
@@ -63,11 +67,11 @@ if (values.help) {
 if (positionals[0] === 'record') {
   const src = positionals[1] ?? findNewestSession(values.projects!)?.file;
   if (!src) fail('No session file found to record.');
-  const rec = parseRecording(fs.readFileSync(src, 'utf8'));
+  const rec = parseRecording(fs.readFileSync(src, 'utf8'), readSubagentFiles(src));
   const out = toOtlpRecording(rec);
   if (values.out) {
     fs.writeFileSync(values.out, out);
-    console.error(`Recorded ${rec.events.length} events from ${src} to ${values.out}`);
+    console.error(`Recorded ${rec.events.length} events and ${rec.agents.length} subagents from ${src} to ${values.out}`);
   } else process.stdout.write(out);
   process.exit(0);
 }
@@ -88,13 +92,13 @@ let snapshot: () => ServerMessage;
 let afterListen = () => {};
 
 if (values.replay) {
-  const rec = parseRecording(fs.readFileSync(values.replay, 'utf8'));
-  if (!rec.events.length) fail(`No events found in ${values.replay}`);
+  const rec = parseRecording(fs.readFileSync(values.replay, 'utf8'), readSubagentFiles(values.replay));
+  if (!rec.events.length && !rec.tools.length) fail(`No events found in ${values.replay}`);
   const player = new ReplayPlayer(rec, emit, { speed, loop: values.loop });
   snapshot = () => player.snapshot();
   stops.push(() => player.stop());
   afterListen = () => player.start();
-  console.log(`Replaying ${rec.events.length} events from ${values.replay} at ${speed}x`);
+  console.log(`Replaying ${rec.events.length} events, ${rec.agents.length} subagents from ${values.replay} at ${speed}x`);
 } else {
   const hub = new Hub(emit);
   snapshot = () => hub.snapshot();
@@ -107,7 +111,8 @@ if (values.replay) {
     console.log(`Watching Claude Code transcripts in ${values.projects}`);
   }
   if (sourceMode !== 'transcripts') {
-    const onEvents = (evs: Parameters<Hub['ingest']>[0]) => evs.length && hub.ingest(evs);
+    const mapper = new OtelMapper();
+    const onSignals = (sigs: Parameters<Hub['ingest']>[0]) => sigs.length && hub.ingest(sigs);
     for (const [label, flag, start] of [
       ['gRPC', 'otlp-grpc', startOtlpGrpc],
       ['HTTP', 'otlp-http', startOtlpHttp],
@@ -115,7 +120,7 @@ if (values.replay) {
       const p = parsePort(values[flag]!, flag);
       if (!p) continue;
       try {
-        const srv = await start(p, onEvents);
+        const srv = await start(p, onSignals, mapper);
         stops.push(() => srv.close());
         console.log(`OTLP/${label} receiver on 127.0.0.1:${p}`);
       } catch (err) {
@@ -126,7 +131,9 @@ if (values.replay) {
   }
 }
 
-const server = await startServer({ port, webDir, snapshot }).catch((err) =>
+const packsDir = resolvePacksDir(values.packs);
+if (packsDir) console.log(`Serving art packs from ${packsDir} at /packs/`);
+const server = await startServer({ port, webDir, packsDir, snapshot }).catch((err) =>
   fail(err?.code === 'EADDRINUSE' ? `Port ${port} is in use; try --port <n>.` : String(err)),
 );
 broadcast = server.broadcast;
@@ -143,6 +150,26 @@ const shutdown = async () => {
 };
 process.on('SIGINT', shutdown);
 process.on('SIGTERM', shutdown);
+
+/**
+ * Where art packs come from: --packs, then $AGENT_VISUALISER_PACKS, then
+ * ~/.agent-visualiser/packs, then ./packs when running from a repo checkout.
+ * Packs are never part of the published build (dist).
+ */
+function resolvePacksDir(flag: string | undefined): string | undefined {
+  const here = path.dirname(fileURLToPath(import.meta.url));
+  const candidates = [
+    flag,
+    process.env.AGENT_VISUALISER_PACKS,
+    path.join(os.homedir(), '.agent-visualiser', 'packs'),
+    path.join(here, '..', '..', 'packs'),
+  ];
+  for (const c of candidates) {
+    if (c && fs.existsSync(c) && fs.statSync(c).isDirectory()) return path.resolve(c);
+  }
+  if (flag) console.warn(`--packs ${flag} is not a directory; /packs/ will 404.`);
+  return undefined;
+}
 
 function parsePort(raw: string, name: string): number {
   const n = Number(raw);
