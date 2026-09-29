@@ -8,7 +8,8 @@ Works with **Claude Code** out of the box. It also works with **any agent that s
 
 ## Setup
 
-1. `npx agent-visualiser` (Node 20+). A browser tab opens on an empty desk.
+1. Clone this repo, then `npm install && npm run build && npm start` (Node 20+). A browser tab opens on an empty desk.
+   (Not on npm yet; `npx agent-visualiser` will work once it is published.)
 2. Start your agent as normal in any project.
 3. Watch the bubbles.
 
@@ -169,3 +170,7 @@ npm run proto
 ```
 
 Art credits are in [proto/CREDITS.md](proto/CREDITS.md).
+
+## Licence
+
+Code: [MIT](LICENSE). Bundled art is CC0 (credits in [proto/CREDITS.md](proto/CREDITS.md)). The optional LimeZu pack is paid and never included; see [packs/README.md](packs/README.md).
