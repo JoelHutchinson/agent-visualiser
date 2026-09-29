@@ -1,2 +1,6 @@
 node_modules
 dist
+
+# Licensed art packs you bought: never commit (no redistribution).
+packs/*
+!packs/README.md

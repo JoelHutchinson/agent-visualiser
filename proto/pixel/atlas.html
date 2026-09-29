@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Sprite Atlas Finder</title>
+<style>
+  body { margin:0; padding:8px; background:#222; color:#ddd; font:11px monospace; }
+  canvas { image-rendering:pixelated; display:block; }
+  pre { white-space:pre-wrap; }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<pre id="out"></pre>
+<script>
+// Finds every object on a sprite sheet (8-connected opaque pixels, merging
+// pieces whose boxes overlap or nearly touch), then draws numbered boxes.
+// Usage: atlas.html?src=path&scale=2&y0=0&y1=848&gap=1
+const q = new URLSearchParams(location.search);
+const src = q.get('src'), S = +(q.get('scale') || 2), gap = +(q.get('gap') ?? 1);
+const img = new Image();
+img.onload = () => {
+  const W = img.width, H = img.height, y0 = +(q.get('y0') || 0), y1 = +(q.get('y1') || H);
+  const t = document.createElement('canvas'); t.width = W; t.height = H;
+  const tg = t.getContext('2d'); tg.drawImage(img, 0, 0);
+  const d = tg.getImageData(0, 0, W, H).data;
+  const solid = (x, y) => d[(y * W + x) * 4 + 3] > 20;
+  const lab = new Int32Array(W * H).fill(-1);
+  let boxes = [];
+  for (let y = y0; y < y1; y++) for (let x = 0; x < W; x++) {
+    if (!solid(x, y) || lab[y * W + x] >= 0) continue;
+    const b = { x0: x, y0: y, x1: x, y1: y }, st = [[x, y]]; lab[y * W + x] = boxes.length;
+    while (st.length) {
+      const [cx, cy] = st.pop();
+      b.x0 = Math.min(b.x0, cx); b.x1 = Math.max(b.x1, cx); b.y0 = Math.min(b.y0, cy); b.y1 = Math.max(b.y1, cy);
+      for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+        const nx = cx + dx, ny = cy + dy;
+        if (nx < 0 || ny < y0 || nx >= W || ny >= y1 || lab[ny * W + nx] >= 0 || !solid(nx, ny)) continue;
+        lab[ny * W + nx] = boxes.length; st.push([nx, ny]);
+      }
+    }
+    boxes.push(b);
+  }
+  // Merge boxes that overlap or are within `gap` px (antennas, cables, shadows).
+  let merged = true;
+  while (merged) {
+    merged = false;
+    for (let i = 0; i < boxes.length && !merged; i++) for (let j = i + 1; j < boxes.length; j++) {
+      const a = boxes[i], b = boxes[j];
+      if (a.x0 - gap <= b.x1 && b.x0 - gap <= a.x1 && a.y0 - gap <= b.y1 && b.y0 - gap <= a.y1) {
+        a.x0 = Math.min(a.x0, b.x0); a.y0 = Math.min(a.y0, b.y0); a.x1 = Math.max(a.x1, b.x1); a.y1 = Math.max(a.y1, b.y1);
+        boxes.splice(j, 1); merged = true; break;
+      }
+    }
+  }
+  boxes = boxes.filter((b) => (b.x1 - b.x0 + 1) * (b.y1 - b.y0 + 1) >= 12).sort((a, b) => a.y0 - b.y0 || a.x0 - b.x0);
+  const c = document.getElementById('c'); c.width = W * S; c.height = (y1 - y0) * S;
+  const g = c.getContext('2d'); g.imageSmoothingEnabled = false;
+  g.drawImage(img, 0, y0, W, y1 - y0, 0, 0, W * S, (y1 - y0) * S);
+  g.font = 'bold 10px monospace';
+  boxes.forEach((b, i) => {
+    g.strokeStyle = 'rgba(255,0,255,0.8)'; g.strokeRect(b.x0 * S + 0.5, (b.y0 - y0) * S + 0.5, (b.x1 - b.x0 + 1) * S - 1, (b.y1 - b.y0 + 1) * S - 1);
+    g.fillStyle = '#000'; g.fillRect(b.x0 * S, (b.y0 - y0) * S, 16, 11); g.fillStyle = '#ff0'; g.fillText(i, b.x0 * S + 1, (b.y0 - y0) * S + 9);
+  });
+  window.boxes = boxes.map((b, i) => ({ i, x: b.x0, y: b.y0, w: b.x1 - b.x0 + 1, h: b.y1 - b.y0 + 1 }));
+  document.getElementById('out').textContent = window.boxes.map((b) => `${b.i}:${b.x},${b.y},${b.w},${b.h}`).join('  ');
+};
+img.src = src;
+</script>
+</body>
+</html>

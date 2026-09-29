@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Agent Mega Office</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Pixelify+Sans:wght@400;600&display=swap" />
+<link rel="stylesheet" href="./views.css" />
+<style>
+  #screen { position:fixed; inset:0; width:100vw; height:100vh; cursor:grab; touch-action:none; }
+  #screen.drag { cursor:grabbing; }
+  .hint { position:fixed; right:12px; bottom:64px; color:var(--muted); font-size:12px; pointer-events:none; }
+  .credit { position:fixed; left:12px; bottom:64px; color:var(--muted); font-size:11px; pointer-events:none; }
+  #missing { position:fixed; inset:0; display:none; place-items:center; text-align:center; padding:24px; color:var(--muted); }
+  #missing a { color:#b9adff; }
+</style>
+</head>
+<body>
+<canvas id="screen"></canvas>
+<div id="loading">Building the office…</div>
+<div id="missing"><div>The LimeZu Modern Office pack isn't installed.<br />See <code>packs/README.md</code>, or use the free <a href="./grid.html">CC0 grid view</a>.</div></div>
+<div class="hud">
+  <div class="counter" id="c-research"><i style="background:var(--research)"></i>Research <b>0</b></div>
+  <div class="counter" id="c-code"><i style="background:var(--code)"></i>Code <b>0</b></div>
+  <div class="counter" id="c-bug"><i style="background:var(--bug)"></i>Bugs <b>0</b></div>
+  <nav class="nav"><a href="./index.html">Office</a><a href="./tower.html">Tower</a><a class="on" href="./mega.html">Mega office</a></nav>
+  <div class="status" id="status"></div>
+</div>
+<div class="credit" id="credit"></div>
+<div class="hint">Drag to pan · scroll to zoom · double-click a room</div>
+<div class="controls">
+  <select id="preset"><option value="team">Team</option><option value="departments">Departments</option><option value="swarm" selected>Swarm</option></select>
+  <button id="b-wait">Waiting for input</button>
+  <button id="b-spawn">+ Subagent</button>
+  <button id="b-team">+ Sub-team</button>
+  <button id="b-fit">Fit all</button>
+</div>
+<script type="module" src="./mega.js"></script>
+</body>
+</html>

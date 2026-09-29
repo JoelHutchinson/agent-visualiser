@@ -13,3 +13,9 @@ not required, but it is given gladly.
 Derived art made for this project (sitting, typing and front-facing seated
 poses, the wooden floor, boss rug and executive chair) is generated in code
 from the sprites above.
+
+## Optional licensed pack (not included)
+
+The mega-office view uses "Modern Office" by LimeZu (https://limezu.itch.io/modernoffice)
+when it is installed locally in `packs/` (see `packs/README.md`). It is not
+redistributed with this project.

@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Pack Check</title>
+<style>
+  body { margin:0; padding:10px; background:#2a2533; color:#ddd; font:11px monospace; }
+  .grid { display:flex; flex-wrap:wrap; gap:6px; }
+  .cell { background:#6b6380; padding:4px; display:flex; flex-direction:column; align-items:center; gap:3px; }
+  canvas { image-rendering:pixelated; }
+</style>
+</head>
+<body>
+<div id="out" class="grid"></div>
+<script type="module">
+import { loadPack, NAMES } from './packs/limezu.js';
+const pack = await loadPack();
+const out = document.getElementById('out');
+if (!pack) out.textContent = 'Pack not installed (packs/limezu-modern-office missing).';
+else for (const name of [...NAMES.obj, ...NAMES.room]) {
+  const s = pack.sprites[name], k = 3;
+  const c = document.createElement('canvas'); c.width = s.width * k; c.height = s.height * k;
+  const g = c.getContext('2d'); g.imageSmoothingEnabled = false; g.drawImage(s, 0, 0, c.width, c.height);
+  const d = document.createElement('div'); d.className = 'cell'; d.append(c, Object.assign(document.createElement('span'), { textContent: `${name} ${s.width}x${s.height}` }));
+  out.append(d);
+}
+</script>
+</body>
+</html>

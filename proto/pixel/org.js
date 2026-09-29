@@ -11,7 +11,7 @@ export class Org {
     this.agents = new Map();
     this.nextId = 1;
     this.teamNo = 0;
-    this.listeners = { spawn: [], finish: [], event: [], state: [] };
+    this.listeners = { spawn: [], finish: [], event: [], state: [], activity: [] };
     this.timers = [];
     this.building = false;
   }
@@ -74,6 +74,16 @@ export class Org {
       const done = this.list.filter((a) => a.role === 'worker' && a.ready && a.state === 'working' && performance.now() - a.born > 12000);
       if (done.length) this.finish(pick(done));
     }, finishEvery * 1000));
+  }
+  /** Away-from-desk work: plan (whiteboard), web (library), run (servers), wait (blocked on the user). */
+  simulateActivities(every = 2.2) {
+    this.timers.push(setInterval(() => {
+      const ready = this.list.filter((a) => a.role === 'worker' && a.ready && a.state === 'working');
+      if (!ready.length) return;
+      const r = Math.random();
+      const kind = r < 0.25 ? 'plan' : r < 0.55 ? 'web' : r < 0.85 ? 'run' : 'wait';
+      this.emit('activity', pick(ready), kind, 4 + Math.random() * 5);
+    }, every * 1000));
   }
   stop() { for (const t of this.timers) clearInterval(t); this.timers = []; }
 }

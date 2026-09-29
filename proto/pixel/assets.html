@@ -1,0 +1,156 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Office Asset Options</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Pixelify+Sans:wght@400;600&display=swap" />
+<style>
+  :root { --bg:#1d1828; --card:#2b2438; --edge:#0f0c16; --text:#f4eefc; --muted:#a79fbd; --ok:#5fd08a; --warn:#f0b451; --no:#ff7a7a; --accent:#8a7cff; }
+  * { box-sizing: border-box; }
+  body { margin:0; padding:20px 16px 48px; background:var(--bg); color:var(--text); font:15px/1.5 system-ui, sans-serif; }
+  h1 { font:600 24px 'Pixelify Sans', system-ui; margin:0 0 4px; }
+  h2 { font:600 17px 'Pixelify Sans', system-ui; margin:26px 0 10px; color:var(--muted); }
+  .sub { color:var(--muted); margin:0 0 8px; max-width:900px; }
+  .grid { display:grid; grid-template-columns:repeat(auto-fit, minmax(min(100%, 360px), 1fr)); gap:14px; }
+  .card { background:var(--card); border:3px solid var(--edge); display:flex; flex-direction:column; }
+  .card.rec { border-color:var(--accent); }
+  .shot { background:#0e0b14; aspect-ratio:16/10; display:flex; align-items:center; justify-content:center; overflow:hidden; }
+  .shot img { width:100%; height:100%; object-fit:contain; image-rendering:pixelated; }
+  .body { padding:10px 12px 12px; }
+  .top { display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-bottom:4px; }
+  .name { font:600 16px 'Pixelify Sans', system-ui; }
+  .badge { font-size:12px; padding:1px 7px; border:1px solid currentColor; }
+  .ok { color:var(--ok); } .warn { color:var(--warn); } .no { color:var(--no); }
+  ul { margin:4px 0 0; padding-left:18px; color:#d8d2e6; font-size:14px; } li { margin:2px 0; }
+  a { color:#b9adff; }
+</style>
+</head>
+<body>
+<h1>Mega-office asset options</h1>
+<p class="sub">What each candidate looks like, and whether we may ship it in a public repo and hosted demo. "Redistributable" is the bar: most itch.io packs allow use in games but forbid redistributing the files.</p>
+
+<h2>Three routes</h2>
+<div class="grid">
+  <div class="card rec"><div class="body"><div class="top"><span class="name">A · Open LPC building kit</span><span class="badge ok">ships everywhere</span></div><ul><li>Real walls, floors, doorways, kitchens, restrooms; characters with a sit pose</li><li>Consistent 32px style; leans cosy/rustic, less corporate</li><li>Attribution file required (many authors)</li></ul></div></div>
+  <div class="card"><div class="body"><div class="top"><span class="name">B · Premium modern office, bring-your-own</span><span class="badge warn">~$2–$15, not in repo</span></div><ul><li>LimeZu Modern Office or Donarg: most corporate, most realistic</li><li>Like Pixel Agents: the repo ships the CC0 default; the app loads a pack you bought from a local folder</li><li>The hosted demo could only use it if the licence allows a built project (check first)</li></ul></div></div>
+  <div class="card"><div class="body"><div class="top"><span class="name">C · Keep 2dPig, add drawn architecture</span><span class="badge ok">no new assets</span></div><ul><li>Draw thick walls, doorways, corridors, meeting rooms and kitchens in code, in the 2dPig style</li><li>Cheapest and consistent with the tower; realism limited by the small prop set</li></ul></div></div>
+</div>
+
+<h2>Recommended: the LPC building kit (all open licences, one consistent 32px style)</h2>
+<div class="grid">
+  <div class="card rec">
+    <div class="shot"><img src="https://opengameart.org/sites/default/files/interior-preview.png" alt="LPC walls interior preview" /></div>
+    <div class="body">
+      <div class="top"><span class="name">[LPC] Walls + [LPC] Floors</span><span class="badge ok">CC-BY-SA 3.0 / 4.0</span></div>
+      <ul><li>300+ walls with auto-tiling corners, 32 ceiling trims, 100+ floors (carpet, wood, tile)</li><li>This is what makes rooms, corridors and doorways read as a real building</li></ul>
+      <a href="https://opengameart.org/content/lpc-walls">walls</a> · <a href="https://opengameart.org/content/lpc-floors">floors</a>
+    </div>
+  </div>
+  <div class="card rec">
+    <div class="shot"><img src="https://opengameart.org/sites/default/files/walls-snapshot.png" alt="LPC walls snapshot" /></div>
+    <div class="body">
+      <div class="top"><span class="name">Wall variety</span><span class="badge ok">CC-BY-SA 3.0</span></div>
+      <ul><li>Office plaster, wood panelling, brick, glass-style trims: different looks per department</li></ul>
+    </div>
+  </div>
+  <div class="card rec">
+    <div class="shot"><img src="https://opengameart.org/sites/default/files/floor-snapshot.png" alt="LPC floors snapshot" /></div>
+    <div class="body">
+      <div class="top"><span class="name">Floor variety</span><span class="badge ok">CC-BY-SA 4.0</span></div>
+      <ul><li>Carpets for team areas, tiles for kitchens and restrooms, wood for the executive floor</li></ul>
+    </div>
+  </div>
+  <div class="card rec">
+    <div class="shot"><img src="https://opengameart.org/sites/default/files/preview_628.png" alt="LPC house interior" /></div>
+    <div class="body">
+      <div class="top"><span class="name">LPC house interior + decorations</span><span class="badge ok">CC-BY-SA 3.0</span></div>
+      <ul><li>Bookshelves, kitchen counters, tables, plants, bathroom pieces for break rooms and restrooms</li></ul>
+    </div>
+  </div>
+  <div class="card rec">
+    <div class="shot"><img src="https://opengameart.org/sites/default/files/archive/lpc-hair-4xpreview.gif" alt="Expanded LPC body with sit" /></div>
+    <div class="body">
+      <div class="top"><span class="name">Expanded Universal LPC characters</span><span class="badge ok">OGA-BY 3.0 (+ per-part)</span></div>
+      <ul><li>Idle, walk, run, <b>sit</b>; clothes via the Universal LPC generator (shirts, suits)</li><li>Generator exports a credits file per character</li></ul>
+      <a href="https://opengameart.org/content/lpc-expanded-sit-run-jump-more">opengameart.org</a>
+    </div>
+  </div>
+</div>
+
+<h2>Other usable packs</h2>
+<div class="grid">
+  <div class="card rec">
+    <div class="shot"><img src="https://opengameart.org/sites/default/files/_pack_preview.png" alt="LPC Revised The Office preview" /></div>
+    <div class="body">
+      <div class="top"><span class="name">[LPC Revised] The Office</span><span class="badge ok">CC-BY-SA 3.0 / OGA-BY 3.0</span></div>
+      <ul>
+        <li>Real building interior: walls, floors, doors, desks, laptops, sinks, meeting tables</li>
+        <li>32px LPC style, the open-source art standard; huge LPC ecosystem (kitchens, bathrooms, furniture)</li>
+        <li>Pairs with LPC characters (walk, sit) or MetroCity at 2×</li>
+        <li>Attribution required; OGA-BY avoids share-alike</li>
+      </ul>
+      <a href="https://opengameart.org/content/lpc-revised-the-office">opengameart.org</a>
+    </div>
+  </div>
+  <div class="card">
+    <div class="shot"><img src="https://kenney.nl/media/pages/assets/roguelike-indoors/3c041db86f-1677694884/sample.png" alt="Kenney Roguelike Indoors sample" /></div>
+    <div class="body">
+      <div class="top"><span class="name">Kenney Roguelike Indoors</span><span class="badge ok">CC0</span></div>
+      <ul><li>480 16px tiles: walls, floors, kitchens, tables, sofas, bathrooms</li><li>Flatter, simpler style than 2dPig; mixes less well</li></ul>
+      <a href="https://kenney.nl/assets/roguelike-indoors">kenney.nl</a>
+    </div>
+  </div>
+  <div class="card">
+    <div class="shot"><img src="https://kenney.nl/media/pages/assets/roguelike-modern-city/69c121b8ae-1677694738/sample.png" alt="Kenney Roguelike Modern City sample" /></div>
+    <div class="body">
+      <div class="top"><span class="name">Kenney Roguelike Modern City</span><span class="badge ok">CC0</span></div>
+      <ul><li>Modern buildings, interiors and streets at 16px</li><li>Good for a building exterior or campus view; same flat style</li></ul>
+      <a href="https://kenney.nl/assets/roguelike-modern-city">kenney.nl</a>
+    </div>
+  </div>
+  <div class="card">
+    <div class="shot"><img src="https://opengameart.org/sites/default/files/cubicles.png" alt="Cubicle mini tile set" /></div>
+    <div class="body">
+      <div class="top"><span class="name">Cubicle mini tile set</span><span class="badge ok">CC-BY 3.0</span></div>
+      <ul><li>32 cubicle wall tiles + carpets for cubicle farms</li><li>Rendered, not hand-pixelled; narrow scope</li></ul>
+      <a href="https://opengameart.org/content/cubicle-mini-tile-set">opengameart.org</a>
+    </div>
+  </div>
+</div>
+
+<h2>Great-looking, but not redistributable (paid or all rights reserved)</h2>
+<div class="grid">
+  <div class="card">
+    <div class="shot"><img src="https://img.itch.zone/aW1hZ2UvMzU3NjEzMS8yMTI4NzkxOC5qcGVn/794x1000/VOEshf.jpeg" alt="Donarg Office Interior Tileset" /></div>
+    <div class="body"><div class="top"><span class="name">Donarg Office Interior (16px)</span><span class="badge no">$2 · no redistribution</span></div>
+      <ul><li>What Pixel Agents uses; they make users import it themselves</li></ul></div>
+  </div>
+  <div class="card">
+    <div class="shot"><img src="https://img.itch.zone/aW1nLzY5NzQ5OTguZ2lm/original/y5X8s%2B.gif" alt="LimeZu Modern Office" /></div>
+    <div class="body"><div class="top"><span class="name">LimeZu Modern Office (16px)</span><span class="badge no">paid · no redistribution</span></div>
+      <ul><li>The gold standard for modern offices; huge; same limitation</li></ul></div>
+  </div>
+  <div class="card">
+    <div class="shot"><img src="https://img.itch.zone/aW1hZ2UvMTk3ODI1NC8yNzc1MzA0MS5wbmc=/794x1000/Efs5Ff.png" alt="Masalimov Pixel Office 32x32" /></div>
+    <div class="body"><div class="top"><span class="name">Masalimov Pixel Office (32px)</span><span class="badge warn">$5 · redistribution unclear</span></div>
+      <ul><li>Walls, floors, doors, seated workers; terms allow use and modification but don't mention redistribution</li></ul></div>
+  </div>
+  <div class="card">
+    <div class="shot"><img src="https://img.itch.zone/aW1hZ2UvNDI3MjUwNy8yNTQ2Njc2NS5wbmc=/794x1000/8c0Dye.png" alt="Maru Office Interior Pack" /></div>
+    <div class="body"><div class="top"><span class="name">Maru Office Interior (16px)</span><span class="badge no">€3.99 · no licence stated</span></div>
+      <ul><li>Directional walls with corners, floor tiles</li></ul></div>
+  </div>
+  <div class="card">
+    <div class="shot"><img src="https://img.itch.zone/aW1hZ2UvMjU5ODcyMy8xNTQ3ODQ1OC5naWY=/original/wnAem0.gif" alt="Little Bits Office" /></div>
+    <div class="body"><div class="top"><span class="name">Little Bits: Office (16px)</span><span class="badge warn">free · no licence stated</span></div>
+      <ul><li>Cubicles, desks, supplies; would need the author's permission</li></ul></div>
+  </div>
+  <div class="card">
+    <div class="shot"><img src="https://img.itch.zone/aW1hZ2UvMzUzMDQ4NC8yMTAyOTAxMi5wbmc=/794x1000/ATCaLc.png" alt="Kami Amiga office interior" /></div>
+    <div class="body"><div class="top"><span class="name">Kami Amiga Office (40px)</span><span class="badge warn">free · no licence stated</span></div>
+      <ul><li>Walls tilemap, ground tile, separated sprites</li></ul></div>
+  </div>
+</div>
+</body>
+</html>
