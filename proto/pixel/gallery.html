@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Character Gallery</title>
+<style>
+  body { margin: 0; padding: 12px; background: #2a2533; color: #ddd; font: 11px monospace; }
+  canvas { image-rendering: pixelated; }
+  .row { display: flex; gap: 6px; align-items: center; margin-bottom: 4px; flex-wrap: wrap; }
+</style>
+</head>
+<body>
+<div id="out"></div>
+<script type="module">
+import { loadAll, makeCharacter } from './sprites.js';
+const imgs = await loadAll();
+const out = document.getElementById('out');
+const S = 3;
+function show(label, list) {
+  const row = document.createElement('div'); row.className = 'row';
+  const l = document.createElement('span'); l.textContent = label; l.style.width = '90px'; row.append(l);
+  for (const c of list) { const k = document.createElement('canvas'); k.width = 32 * S; k.height = 32 * S; const g = k.getContext('2d'); g.imageSmoothingEnabled = false; g.drawImage(c, 0, 0, 32 * S, 32 * S); row.append(k); }
+  out.append(row);
+}
+// Outfits 1-6 on skin 0 with hair row 0, down/right frames; plus derived poses.
+for (let o = 1; o <= 6; o++) {
+  const ch = await makeCharacter(imgs, { skin: o % 6, outfit: o, hair: o - 1 });
+  show('outfit ' + o, [ch.frames[0], ch.frames[6], ch.frames[7], ch.frames[12], ch.sit, ch.front]);
+}
+for (let s = 0; s < 4; s++) {
+  const ch = await makeCharacter(imgs, { skin: 0, suit: s, hair: 2 });
+  show('suit ' + s, [ch.frames[0], ch.frames[6], ch.sit, ch.front]);
+}
+const hairRow = []; for (let h = 0; h < 8; h++) hairRow.push((await makeCharacter(imgs, { skin: 1, outfit: 1, hair: h })).frames[0]);
+show('hairs 0-7', hairRow);
+</script>
+</body>
+</html>

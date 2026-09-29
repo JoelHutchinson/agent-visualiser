@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Sprite Inspector</title>
+<style>
+  body { margin: 0; padding: 16px; background: #222; color: #ddd; font: 12px system-ui; }
+  canvas { image-rendering: pixelated; display: block; margin: 6px 0 18px; background: #0b0b0b; }
+  h3 { margin: 4px 0; font-size: 13px; }
+</style>
+</head>
+<body>
+<div id="out"></div>
+<script>
+// Usage: inspect.html?src=path&scale=4&grid=16&x=0&y=0&w=256&h=160
+const q = new URLSearchParams(location.search);
+const sheets = (q.get('src') || '').split('|').filter(Boolean);
+const scale = +(q.get('scale') || 4), grid = +(q.get('grid') || 16);
+for (const src of sheets) {
+  const img = new Image();
+  img.onload = () => {
+    const x = +(q.get('x') || 0), y = +(q.get('y') || 0);
+    const w = +(q.get('w') || img.width), h = +(q.get('h') || img.height);
+    const c = document.createElement('canvas');
+    c.width = w * scale; c.height = h * scale;
+    const g = c.getContext('2d');
+    g.imageSmoothingEnabled = false;
+    g.drawImage(img, x, y, w, h, 0, 0, w * scale, h * scale);
+    g.strokeStyle = 'rgba(255,0,255,0.35)'; g.fillStyle = '#ff0'; g.font = '10px monospace';
+    for (let gx = 0; gx <= w; gx += grid) { g.beginPath(); g.moveTo(gx * scale + 0.5, 0); g.lineTo(gx * scale + 0.5, h * scale); g.stroke(); g.fillText(x + gx, gx * scale + 2, 10); }
+    for (let gy = 0; gy <= h; gy += grid) { g.beginPath(); g.moveTo(0, gy * scale + 0.5); g.lineTo(w * scale, gy * scale + 0.5); g.stroke(); g.fillText(y + gy, 2, gy * scale + 20); }
+    const hd = document.createElement('h3'); hd.textContent = `${src} (${img.width}×${img.height})`;
+    document.getElementById('out').append(hd, c);
+  };
+  img.src = src;
+}
+</script>
+</body>
+</html>
