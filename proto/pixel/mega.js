@@ -147,25 +147,36 @@ function resetLayout() {
 }
 
 function buildStudio() {
-  CORRIDOR = false; minGW = 32; GW = 32; GH = 18;
-  const r = makeRoom('studio', 0, 0, 31, 17, { floor: 'carpetGrey', face: 'faceMarble', name: 'Studio', color: '#e8b94a' });
+  // One open studio (x 0..26) with a walled server room and break room on the right.
+  CORRIDOR = false; minGW = 36; GW = 36; GH = 18;
+  const r = makeRoom('studio', 0, 0, 35, 17, { floor: 'carpetGrey', face: 'faceMarble', name: 'Studio', color: '#e8b94a' });
   r.doors.push([4, 17], [5, 17]);
+  const srv = makeRoom('server', 26, 0, 35, 8, { floor: 'floorGreyTile', face: 'faceStone', name: 'Servers', color: '#8be07b' });
+  srv.doors.push([26, 6], [26, 7]);
+  const brk = makeRoom('break', 26, 8, 35, 17, { floor: 'floorWhiteWood', face: 'faceStone', name: 'Break room', color: '#ffb36b' });
+  brk.doors.push([26, 14], [26, 15]);
   ENTRANCE = { x: 80, y: 17 * T + 8 };
-  const { ix, iy } = r;
+  let { ix, iy } = r;
   EXEC.bossRoom = EXEC.warRoom = r;
-  EXEC.bossSeat = r.desk = addDeskSeat(r, 'deskWoodBig', ix + 206, iy + 22);
-  addProp('plantTall', ix + 258, iy - 8); addProp('certificate', ix + 214, iy - 26, { sort: iy - 1 }); addProp('lamp', ix + 190, iy + 28, { sort: iy + 50 });
-  const podsS = [addPod(r, ix + 120, iy + 100), addPod(r, ix + 174, iy + 100), addPod(r, ix + 228, iy + 100)];
+  EXEC.bossSeat = r.desk = addDeskSeat(r, 'deskWoodBig', ix + 170, iy + 22);
+  addProp('plantTall', ix + 222, iy - 8); addProp('certificate', ix + 178, iy - 26, { sort: iy - 1 }); addProp('lamp', ix + 154, iy + 28, { sort: iy + 50 });
+  const podsS = [addPod(r, ix + 110, iy + 100), addPod(r, ix + 164, iy + 100), addPod(r, ix + 218, iy + 100)];
   EXEC.warSeats = r.seats = podsS.flatMap((p) => p.seats);
-  furnishPlanning(r, [ix + 40, ix + 90], iy);
+  furnishPlanning(r, [ix + 20, ix + 64], iy);
   furnishLibrary(r, [ix + 300, ix + 334], iy);
-  furnishServer(r, [ix + 418, ix + 446], iy + 6);
-  furnishCoffee(r, ix + 380, iy + 150);
   furnishWaiting(r, ix + 6, iy + 150, 3, 1, ix + 6, iy + 124);
   EXEC.youSeat = addDeskSeat(r, 'deskTanBig', ix + 90, iy + 168);
-  addProp('artFaces', ix + 150, iy - 26, { sort: iy - 1 }); addProp('plantBig', ix + 2, iy - 6); addProp('plantBig', ix + 462, iy + 120);
-  addProp('sofa', ix + 300, iy + 176, { solid: true });
-  pets.push({ kind: 'corgi', x: ix + 356, y: iy + 214, t: 0 }, { kind: 'cat', x: ix + 200, y: iy + 180, tx: 0, ty: 0, t: 0, rest: 2, flip: false });
+  addProp('artFaces', ix + 112, iy - 26, { sort: iy - 1 }); addProp('plantBig', ix + 2, iy - 6); addProp('plantBig', ix + 380, iy + 110);
+  addProp('sofa', ix + 296, iy + 176, { solid: true });
+  pets.push({ kind: 'corgi', x: ix + 350, y: iy + 214, t: 0 }, { kind: 'cat', x: ix + 200, y: iy + 180, tx: 0, ty: 0, t: 0, rest: 2, flip: false });
+  // Server room: racks against the back wall.
+  ({ ix, iy } = srv);
+  furnishServer(srv, [ix + 8, ix + 38, ix + 68, ix + 98], iy + 2);
+  // Break room: vending, fridge and cooler on the wall, a table and chairs.
+  ({ ix, iy } = brk);
+  furnishCoffee(brk, ix + 6, iy - 18); addProp('snacks', ix + 90, iy - 8, { solid: true });
+  addProp('tableRect', ix + 58, iy + 50, { solid: true }); addProp('chairSideR', ix + 44, iy + 44); addProp('chairSideL', ix + 92, iy + 44);
+  addProp('plantSmall', ix + 112, iy + 60);
 }
 
 function buildBuilding(tier) {
@@ -174,7 +185,7 @@ function buildBuilding(tier) {
   // Executive strip: rooms left to right, [kind, name, width in tiles].
   const plan = full
     ? [['lobby', 'Lobby', 13], ['boss', 'Orchestrator', 17], ['war', 'War room', 14], ['break', 'Break room', 14], ['plan', 'Planning', 14], ['meet', 'Meeting room', 16], ['wait', 'Waiting room', 12], ['library', 'Library', 14], ['server', 'Server room', 13]]
-    : [['lobby', 'Lobby', 13], ['boss', 'Orchestrator', 17], ['war', 'War room', 14], ['planmeet', 'Planning & meetings', 18], ['commons', 'Commons', 18]];
+    : [['lobby', 'Lobby', 13], ['boss', 'Orchestrator', 17], ['war', 'War room', 14], ['planmeet', 'Planning & meetings', 18], ['library', 'Library', 11], ['break', 'Break room', 12], ['server', 'Server room', 10]];
   minGW = plan.reduce((s, q) => s + q[2], 0) + 1;
   GW = Math.max(minGW, 1 + wings.length * CW + 1); GH = WING_Y + 4;
   ENTRANCE = { x: 6, y: (EXEC_H + 2) * T };
@@ -225,12 +236,12 @@ function buildBuilding(tier) {
     ({ ix, iy } = R.planmeet);
     furnishPlanning(R.planmeet, [ix + 190, ix + 236], iy);
     furnishMeeting(R.planmeet, ix - 30, iy + 6); addProp('plantBig', ix + 2, iy - 6);
-    ({ ix, iy } = R.commons);
-    furnishCoffee(R.commons, ix + 8, iy - 18);
-    furnishLibrary(R.commons, [ix + 110, ix + 146], iy);
-    furnishServer(R.commons, [ix + 200, ix + 230], iy + 6);
-    addProp('tableRect', ix + 30, iy + 90, { solid: true }); addProp('chairSideR', ix + 16, iy + 84); addProp('chairSideL', ix + 64, iy + 84);
-    addProp('sofa', ix + 120, iy + 130, { solid: true }); addProp('plantBig', ix + 250, iy + 124);
+    ({ ix, iy } = R.library); furnishLibrary(R.library, [ix + 6, ix + 42, ix + 78, ix + 114], iy, { xs: [ix + 20, ix + 80], y: iy + 72 });
+    ({ ix, iy } = R.break);
+    furnishCoffee(R.break, ix + 8, iy - 18); addProp('snacks', ix + 92, iy - 8, { solid: true });
+    addProp('tableRect', ix + 40, iy + 80, { solid: true }); addProp('chairSideR', ix + 26, iy + 74); addProp('chairSideL', ix + 74, iy + 74);
+    addProp('sofa', ix + 100, iy + 130, { solid: true });
+    ({ ix, iy } = R.server); furnishServer(R.server, [ix + 8, ix + 38, ix + 68, ix + 98], iy + 20); addProp('server', ix + 14, iy + 120, { solid: true });
   }
 }
 
