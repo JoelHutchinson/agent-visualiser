@@ -1,0 +1,23 @@
+:root { --bg:#1d1828; --panel:#2b2438; --edge:#0f0c16; --text:#f4eefc; --muted:#a79fbd;
+        --research:#4a9eff; --code:#3ecf6e; --bug:#ff5a5a; --accent:#8a7cff; --gold:#e8b94a; }
+html, body { margin:0; height:100%; background:var(--bg); color:var(--text); font:15px/1.3 'Pixelify Sans', system-ui, sans-serif; overflow:hidden; }
+canvas { image-rendering:pixelated; display:block; }
+.hud { position:fixed; top:10px; left:10px; right:10px; display:flex; gap:6px; flex-wrap:wrap; align-items:center; pointer-events:none; z-index:10; }
+.hud > * { pointer-events:auto; }
+.counter { display:flex; align-items:center; gap:7px; padding:4px 9px; background:var(--panel); border:3px solid var(--edge); box-shadow:inset 0 -3px 0 #0004; }
+.counter i { width:10px; height:10px; }
+.counter b { font-weight:600; font-size:17px; min-width:2ch; text-align:right; }
+.nav { display:flex; gap:0; margin-left:auto; border:3px solid var(--edge); }
+.nav a { color:var(--text); text-decoration:none; padding:4px 10px; background:#3a3150; font-size:14px; }
+.nav a.on { background:var(--accent); }
+.status { width:100%; color:var(--muted); font-size:13px; pointer-events:none; }
+.bump { animation:bump .25s steps(3); } @keyframes bump { 50% { transform:translateY(-3px); } }
+.controls { position:fixed; left:50%; bottom:10px; transform:translateX(-50%); display:flex; gap:4px; flex-wrap:wrap; justify-content:center;
+            padding:5px; background:var(--panel); border:3px solid var(--edge); max-width:calc(100% - 24px); z-index:10; }
+.controls button, .controls select { font:inherit; font-size:14px; color:var(--text); background:#3a3150; border:0; box-shadow:inset 0 -3px 0 #0005; padding:5px 9px; cursor:pointer; }
+.controls button:active { transform:translateY(1px); }
+.controls button.on { background:var(--accent); }
+.bubble { position:fixed; left:0; top:0; width:20px; height:20px; margin:-10px 0 0 -10px; border:3px solid var(--edge);
+          display:grid; place-items:center; font:600 11px/1 'Pixelify Sans', monospace; color:#fff; pointer-events:none; z-index:20; }
+.say { position:fixed; left:0; top:0; pointer-events:none; white-space:nowrap; border:3px solid var(--edge); padding:3px 8px; font-size:13px; color:#1d1a24; background:#fff; z-index:20; }
+#loading { position:fixed; inset:0; display:grid; place-items:center; color:var(--muted); }

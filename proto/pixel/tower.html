@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Agent Tower</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Pixelify+Sans:wght@400;600&display=swap" />
+<link rel="stylesheet" href="./views.css" />
+<style>
+  #scroller { position:fixed; inset:0; overflow:auto; padding:70px 0 90px; box-sizing:border-box; }
+  #screen { margin:0 auto; box-shadow:0 0 0 4px var(--edge); }
+</style>
+</head>
+<body>
+<div id="scroller"><canvas id="screen"></canvas></div>
+<div id="loading">Building the tower…</div>
+<div class="hud">
+  <div class="counter" id="c-research"><i style="background:var(--research)"></i>Research <b>0</b></div>
+  <div class="counter" id="c-code"><i style="background:var(--code)"></i>Code <b>0</b></div>
+  <div class="counter" id="c-bug"><i style="background:var(--bug)"></i>Bugs <b>0</b></div>
+  <nav class="nav"><a href="./index.html">Office</a><a class="on" href="./tower.html">Tower</a><a href="./grid.html">Grid</a></nav>
+  <div class="status" id="status"></div>
+</div>
+<div class="controls">
+  <select id="preset"><option value="team">Team</option><option value="departments" selected>Departments</option><option value="swarm">Swarm</option></select>
+  <button id="b-wait">Waiting for input</button>
+  <button id="b-spawn">+ Subagent</button>
+  <button id="b-team">+ Sub-team</button>
+  <button id="b-zoom">Overview</button>
+</div>
+<script type="module" src="./tower.js"></script>
+</body>
+</html>

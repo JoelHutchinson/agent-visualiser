@@ -6,7 +6,7 @@ import path from 'node:path';
 
 const root = path.resolve(import.meta.dirname, '..');
 const port = Number(process.env.PORT ?? 4591);
-const types = { '.html': 'text/html', '.js': 'text/javascript', '.png': 'image/png', '.glb': 'model/gltf-binary', '.gltf': 'model/gltf+json', '.bin': 'application/octet-stream', '.md': 'text/plain' };
+const types = { '.html': 'text/html', '.css': 'text/css', '.json': 'application/json', '.js': 'text/javascript', '.png': 'image/png', '.glb': 'model/gltf-binary', '.gltf': 'model/gltf+json', '.bin': 'application/octet-stream', '.md': 'text/plain' };
 
 http
   .createServer((req, res) => {

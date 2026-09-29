@@ -107,7 +107,9 @@ npm run dev:web      # Vite dev server; proxies /ws to a running daemon
 
 Two art directions for the scene live in `proto/`, both driven by simulated events for now:
 
-- `proto/pixel/`: pixel-art office (2dPig Pixel Office + JIK-A-4 MetroCity, CC0)
+- `proto/pixel/`: pixel-art office (2dPig Pixel Office + JIK-A-4 MetroCity, CC0), plus two ways to scale it to any agent hierarchy:
+  - `tower.html`: one floor per manager in hierarchy order, an elevator between floors, you in the lobby
+  - `grid.html`: one huge pannable office; departments are zones holding glass-walled sub-offices per manager
 - `proto/3d/`: isometric 3D office (Kenney Furniture Kit + Mini Characters, CC0)
 
 ```bash
