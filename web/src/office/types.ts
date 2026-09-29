@@ -57,7 +57,8 @@ export interface Person {
   blocked: number;
   // View-specific state.
   room?: MegaRoom | null;
-  activity?: { kind: string; spot: Spot; t: number; next: number } | null;
+  /** Activity shown at the desk (on the monitor), with the remote prop it lights up. */
+  activity?: { kind: string; act: unknown; rack?: Prop; board?: Prop; t: number; next: number } | null;
   kickoffUntil?: number;
   floor?: TowerFloor | null;
   home?: TowerFloor;

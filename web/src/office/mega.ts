@@ -24,8 +24,6 @@ const WALL = '#f8f8f8', EDGE = '#3a3a50';
 const NC = 8;                    // nav cell size
 const INK = ['#2f5fd0', '#d23c3c', '#2f9a4a', '#222230'];
 const TIER_LABEL: Record<Tier, string> = { studio: 'Studio', office: 'Office', mega: 'Mega office' };
-/** Where each kind of away-from-desk work happens. */
-const FACILITY = { plan: 'plan', web: 'lib', run: 'srv', wait: 'wait' } as const;
 
 interface Pod { room: MegaRoom; desk: Prop; x: number; y: number; seats: Seat[] }
 interface Pet { kind: 'cat' | 'corgi'; x: number; y: number; t: number; tx?: number; ty?: number; rest?: number; flip?: boolean; path?: Point[] }
@@ -514,16 +512,45 @@ export function createMegaView({ stage, imgs, pack, model, host }: MegaEnv): Off
       g.drawImage(s, Math.round(p.x - 16), Math.round(p.y - s.hip - p.hop - (p.nod > 0 ? Math.round(Math.abs(Math.sin(p.nod * 12))) : 0)));
     }
   }
+  /** What's on a working agent's monitor (10x6 px at x,y): the current activity, else code. */
+  function drawScreen(o: Person, x: number, y: number): void {
+    const kind = o.activity?.kind, t = o.activity?.t ?? 0, k = Math.floor(o.t * 6);
+    if (kind === 'run') { // terminal: prompt lines and a progress bar, red when it failed
+      kit.px(x, y, 10, 6, '#10131c');
+      kit.px(x, y, 1, 1, '#6dff8c'); kit.px(x + 2, y, 3 + (k % 5), 1, '#9aa3b8');
+      kit.px(x, y + 2, 1, 1, '#6dff8c'); kit.px(x + 2, y + 2, 2 + ((k + 3) % 6), 1, '#9aa3b8');
+      kit.px(x, y + 5, 10, 1, '#2a2f40'); kit.px(x, y + 5, Math.max(1, Math.floor(10 * (1 - 1 / (1 + t / 4)))), 1, o.shake > 0 ? '#ff5a5a' : '#6dff8c');
+    } else if (kind === 'web') { // browser: address bar, heading, text scrolling past
+      kit.px(x, y, 10, 6, '#eef2f7'); kit.px(x, y, 10, 1, '#4a9eff');
+      kit.px(x + 1, y + 2, 5, 1, '#2d3446');
+      for (let i = 0; i < 2; i++) kit.px(x + 1, y + 3 + i * 2, 5 + ((k + i * 2) % 4), 1, '#9aa3b8');
+    } else if (kind === 'plan') { // checklist ticking off
+      kit.px(x, y, 10, 6, '#fdf6e3');
+      const done = Math.floor(t / 1.5) % 4;
+      for (let i = 0; i < 3; i++) {
+        kit.px(x + 1, y + i * 2, 1, 1, i < done ? '#3ecf6e' : '#b8ad92');
+        kit.px(x + 3, y + i * 2, 4 + ((i * 3) % 3), 1, '#6b6150');
+      }
+    } else { // code: scrolling lines, red on a bug
+      const c = o.shake > 0 ? '#ff6b6b' : '#8fe3ff';
+      for (let i = 0; i < 3; i++) kit.px(x, y + i * 2, 4 + ((k + i * 3) % 6), 1, c);
+    }
+  }
+  /** Desks seen from behind (boss, managers): a small badge for the current activity. */
+  function drawBadge(p: Person): void {
+    const kind = p.activity?.kind;
+    if (!kind || !p.visible || p.pose !== 'sit') return;
+    const x = Math.round(p.x + 9), y = Math.round(p.y - p.ch.front.hip - 4);
+    kit.px(x - 1, y - 1, 12, 8, '#0f0c16');
+    drawScreen(p, x, y);
+  }
   function drawPod(pod: Pod): void {
     const d = pod.desk;
     g.drawImage(d.s!, d.x, d.y);
     for (const s of pod.seats) {
       const o = s.occupant, on = !!o && o.working && o.pose === 'sit';
       g.drawImage(S.monitorFront, s.monX!, s.monY!);
-      if (o && on) { // live screen: scrolling code lines, red on a bug
-        const c = o.shake > 0 ? '#ff6b6b' : '#8fe3ff', k = Math.floor(o.t * 6);
-        for (let i = 0; i < 3; i++) kit.px(s.monX! + 3, s.monY! + 3 + i * 2, 4 + ((k + i * 3) % 6), 1, c);
-      }
+      if (o && on) drawScreen(o, s.monX! + 3, s.monY! + 3);
       if (o && o.visible && (o.pose === 'sit' || o.hop)) (o.pose === 'sit' ? drawSeated(o, s) : kit.drawStanding(o));
       g.drawImage(S.chairBack, s.chairX!, s.chairY! + s.dy);
       if (o && on && Math.floor(o.t * 9) % 3 === 0) kit.px(s.seatX - 3 + (Math.floor(o.t * 9) % 2) * 4, pod.y + 30, 2, 1, '#bfefff');
@@ -562,6 +589,7 @@ export function createMegaView({ stage, imgs, pack, model, host }: MegaEnv): Off
     }
     for (const p of people.values()) {
       kit.drawOverlay(p, 0, 0, { dots: showsDots(p) });
+      if (p.seat && !p.seat.pod) drawBadge(p);
       if (p.agent?.role === 'orchestrator' && p.visible) drawTag('BOSS', p.x, p.y - (p.pose === 'sit' ? p.ch.front.hip + 10 : 40));
     }
     const youWaiting = model.root?.state === 'waiting' || waitActs.size > 0;
@@ -848,48 +876,39 @@ export function createMegaView({ stage, imgs, pack, model, host }: MegaEnv): Off
     if (!p) return;
     if (act.kind === 'wait') waitActs.add(act);
     const dotsOnly = () => { if (act.kind === 'wait') { act.dots = true; p.blocked++; } };
-    if (act.kind === 'wait' && a.role === 'orchestrator') { dotsOnly(); return; }   // the boss waits at the desk
-    // Queued behind whatever the agent is doing; skipped if it already ended by then.
-    p.script.push(call(() => {
-      if (act.ended) return;
-      const seat = p.homeSeat;
-      if (!seat || p.seat !== seat || p.pose !== 'sit') return dotsOnly();
-      const open = EXEC.spots[FACILITY[act.kind]].filter((q) => !q.user);
-      const spot = open[Math.floor(Math.random() * open.length)];
-      if (!spot) return dotsOnly();
-      spot.user = p;
-      const room = spot.room;
-      let stay = 0;
-      insertAfterCurrent(p,
-        climbOut(p, seat, true), call(() => { p.room = room; }),
-        walkTo(p, spot),
-        call(() => { p.dir = spot.dir; p.activity = { kind: act.kind, spot, t: 0, next: 0 }; if (act.kind === 'run') spot.rack!.busy = true; }),
-        wait(1.2),
-        step((dt) => act.ended || (stay += dt) > 180),   // never trap someone if the end never comes
-        call(() => {
-          if (act.kind === 'run') {
-            spot.rack!.busy = false;
-            if (act.ok === false) { spot.rack!.fail = 2.5; p.shake = 0.6; insertAfterCurrent(p, wait(0.9)); }
-          }
-          if (act.kind === 'plan') setTimeout(() => { if (spot.board) spot.board.ink!.length = 0; }, 6000);
-          p.activity = null; spot.user = null; p.room = seat.room ?? seat.pod?.room ?? p.room;
-        }),
-        walkTo(p, () => seat.approach), climbIn(p, seat), call(() => { p.working = a.state === 'working'; }));
-    }));
+    // Agents never leave their desk to work: they keep typing and the activity shows on their
+    // monitor. Rooms react remotely (a server rack lights up for a command, a whiteboard fills
+    // while planning); waiting shows the "..." bubble.
+    if (act.kind === 'wait') return dotsOnly();
+    const pick = <T,>(xs: T[]) => xs[Math.floor(Math.random() * xs.length)];
+    const rack = act.kind === 'run' ? pick(EXEC.racks.filter((r) => !r.busy)) ?? pick(EXEC.racks) : undefined;
+    const board = act.kind === 'plan' ? pick(EXEC.spots.plan.map((s) => s.board).filter((b): b is Prop => !!b)) : undefined;
+    if (rack) rack.busy = true;
+    p.activity = { kind: act.kind, act, rack, board, t: 0, next: 0 };
   }
   function onActivityEnd(a: Agent, act: Act): void {
     waitActs.delete(act);
     const p = people.get(a.id);
-    if (p && act.dots) p.blocked = Math.max(0, p.blocked - 1);
+    if (!p) return;
+    if (act.dots) p.blocked = Math.max(0, p.blocked - 1);
+    const cur = p.activity;
+    if (!cur || cur.act !== act) return;
+    if (cur.rack) {
+      cur.rack.busy = [...people.values()].some((q) => q !== p && q.activity?.rack === cur.rack);
+      if (act.ok === false) { cur.rack.fail = 2.5; p.shake = 0.6; }
+    }
+    const board = cur.board;
+    if (board) setTimeout(() => { if (![...people.values()].some((q) => q.activity?.board === board)) board.ink!.length = 0; }, 6000);
+    p.activity = null;
   }
   function tickActivity(p: Person, dt: number): void {
     const act = p.activity;
     if (!act) return;
     act.t += dt; act.next -= dt;
     if (act.next > 0) return;
-    if (act.kind === 'plan') {
+    if (act.board) {
       act.next = 0.22;
-      const board = act.spot.board!;
+      const board = act.board;
       if (board.ink!.length < 46) board.ink!.push({ x: 3 + Math.floor(Math.random() * 20), y: 3 + Math.floor(Math.random() * 12), w: 2 + Math.floor(Math.random() * 7), c: INK[Math.floor(Math.random() * INK.length)] });
     } else act.next = 10;
   }
