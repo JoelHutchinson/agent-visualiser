@@ -1,3 +1,4 @@
+import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { parseJson, type Signal } from '../shared/events.js';
@@ -6,20 +7,69 @@ import { TranscriptParser, type SubagentHint } from '../shared/transcript.js';
 import type { Hub } from './hub.js';
 
 export interface TranscriptOptions {
-  projectsDir: string;
+  /** One or more Claude Code projects folders; the newest session across all wins. */
+  projectsDir: string | string[];
+  /** Extra folders found at runtime (e.g. WSL distros that start later); re-run every 30s. */
+  discover?: () => string[];
   /** Fallback rescan interval, used only if fs.watch is unavailable or misses a
    *  brand-new session file. */
   pollMs?: number;
 }
 
-/** Newest top-level `<project>/<session>.jsonl` under the projects dir. */
-export function findNewestSession(projectsDir: string): { file: string; mtimeMs: number } | undefined {
+/** Network paths (\\\\wsl.localhost\\...) don't deliver fs.watch events reliably; poll them. */
+export const isNetworkPath = (p: string) => /^(\\\\|\/\/)/.test(p);
+
+/**
+ * Claude Code folders inside running WSL distros, seen from Windows
+ * (`\\\\wsl.localhost\\<distro>\\home\\<user>\\.claude\\projects`). Only running distros are
+ * listed so we never boot WSL just to look.
+ */
+export function discoverWslProjects(): string[] {
+  if (process.platform !== 'win32') return [];
+  let out = '';
+  try {
+    out = execFileSync('wsl.exe', ['-l', '--running', '-q'], { encoding: 'utf16le', timeout: 3000, windowsHide: true, stdio: ['ignore', 'pipe', 'ignore'] });
+  } catch {
+    return [];
+  }
+  const found: string[] = [];
+  for (const distro of out.split(/\r?\n/).map((s) => s.replace(/\0/g, '').trim()).filter(Boolean)) {
+    const root = `\\\\wsl.localhost\\${distro}`;
+    const homes = [path.join(root, 'root')];
+    try {
+      for (const u of fs.readdirSync(path.join(root, 'home'))) homes.push(path.join(root, 'home', u));
+    } catch {
+      // No /home or not reachable.
+    }
+    for (const h of homes) {
+      const dir = path.join(h, '.claude', 'projects');
+      try {
+        if (fs.statSync(dir).isDirectory()) found.push(dir);
+      } catch {
+        // Not a Claude Code user.
+      }
+    }
+  }
+  return found;
+}
+
+/** Newest top-level `<project>/<session>.jsonl` under the projects dir(s). */
+export function findNewestSession(projectsDirs: string | string[]): { file: string; mtimeMs: number } | undefined {
   let best: { file: string; mtimeMs: number } | undefined;
+  for (const s of listSessions(projectsDirs)) if (!best || s.mtimeMs > best.mtimeMs) best = s;
+  return best;
+}
+/** Every top-level `<project>/<session>.jsonl` under the projects dir(s). */
+export function listSessions(projectsDirs: string | string[]): { file: string; mtimeMs: number }[] {
+  return (Array.isArray(projectsDirs) ? projectsDirs : [projectsDirs]).flatMap(sessionsIn);
+}
+function sessionsIn(projectsDir: string): { file: string; mtimeMs: number }[] {
+  const all: { file: string; mtimeMs: number }[] = [];
   let projects: fs.Dirent[];
   try {
     projects = fs.readdirSync(projectsDir, { withFileTypes: true });
   } catch {
-    return undefined;
+    return all;
   }
   for (const p of projects) {
     if (!p.isDirectory()) continue;
@@ -34,14 +84,13 @@ export function findNewestSession(projectsDir: string): { file: string; mtimeMs:
       if (!e.isFile() || !e.name.endsWith('.jsonl')) continue;
       const file = path.join(dir, e.name);
       try {
-        const { mtimeMs } = fs.statSync(file);
-        if (!best || mtimeMs > best.mtimeMs) best = { file, mtimeMs };
+        all.push({ file, mtimeMs: fs.statSync(file).mtimeMs });
       } catch {
         // Deleted between readdir and stat.
       }
     }
   }
-  return best;
+  return all;
 }
 
 /** Reads a file incrementally, yielding only complete new lines. */
@@ -169,39 +218,66 @@ export class TranscriptSource {
   /** Subagents already finished, never tailed again. */
   private retired = new Set<string>();
   private pollTimer: NodeJS.Timeout | undefined;
-  private watcher: fs.FSWatcher | undefined;
+  private discoverTimer: NodeJS.Timeout | undefined;
+  private watchers: fs.FSWatcher[] = [];
   private pending: NodeJS.Timeout | undefined;
+  private dirs: string[] = [];
+  private lastScan = 0;
+  private known = new Set<string>();
 
   constructor(
     private readonly opts: TranscriptOptions,
     private readonly hub: Pick<Hub, 'adopt' | 'ingest' | 'touch'>,
   ) {}
 
+  /** Every folder currently being watched (for logging). */
+  get folders(): string[] {
+    return [...this.dirs];
+  }
+
   start(): void {
-    this.check();
-    try {
-      // Recursive watching is supported on Windows, macOS and Linux (Node 20+).
-      this.watcher = fs.watch(this.opts.projectsDir, { recursive: true }, (_evt, name) => {
-        if (!name || String(name).endsWith('.jsonl')) this.scheduleCheck();
-      });
-      this.watcher.on('error', () => this.startPolling(1000));
-      // Slow safety net in case an event is dropped.
-      this.startPolling(this.opts.pollMs ?? 5000);
-    } catch {
-      // Directory missing (Claude Code never run yet) or watch unsupported.
-      this.startPolling(this.opts.pollMs ?? 1000);
+    const base = Array.isArray(this.opts.projectsDir) ? this.opts.projectsDir : [this.opts.projectsDir];
+    this.addDirs(base);
+    this.addDirs(this.opts.discover?.() ?? []);
+    if (this.opts.discover) {
+      this.discoverTimer = setInterval(() => this.addDirs(this.opts.discover!()), 30_000);
+      this.discoverTimer.unref?.();
     }
+    this.check(true);
   }
 
   stop(): void {
-    this.watcher?.close();
+    for (const w of this.watchers) w.close();
     clearInterval(this.pollTimer);
+    clearInterval(this.discoverTimer);
     clearTimeout(this.pending);
+  }
+
+  private addDirs(dirs: string[]): void {
+    let poll = false;
+    for (const dir of dirs) {
+      if (this.dirs.includes(dir)) continue;
+      this.dirs.push(dir);
+      if (isNetworkPath(dir)) { poll = true; continue; }
+      try {
+        // Recursive watching is supported on Windows, macOS and Linux (Node 20+).
+        const w = fs.watch(dir, { recursive: true }, (_evt, name) => {
+          if (!name || String(name).endsWith('.jsonl')) this.scheduleCheck();
+        });
+        w.on('error', () => this.startPolling(1000));
+        this.watchers.push(w);
+      } catch {
+        // Directory missing (Claude Code never run yet) or watch unsupported.
+        poll = true;
+      }
+    }
+    // Network folders are polled every second; otherwise a slow safety net.
+    this.startPolling(poll || this.dirs.some(isNetworkPath) ? 1000 : this.opts.pollMs ?? 5000);
   }
 
   private startPolling(ms: number): void {
     clearInterval(this.pollTimer);
-    this.pollTimer = setInterval(() => this.check(), ms);
+    this.pollTimer = setInterval(() => this.check(ms >= 5000), ms);
     this.pollTimer.unref?.();
   }
 
@@ -210,14 +286,39 @@ export class TranscriptSource {
     if (this.pending) return;
     this.pending = setTimeout(() => {
       this.pending = undefined;
-      this.check();
+      this.check(true);
     }, 50);
   }
 
-  private check(): void {
-    const newest = findNewestSession(this.opts.projectsDir);
-    if (newest && newest.file !== this.tailer?.file) this.follow(newest.file);
-    else if (this.tailer) this.consume();
+  /** Read new lines; rescan every folder for a newer session at most every 4s
+   *  when polling (a full scan over a network share is comparatively slow). */
+  private check(fullScan = false): void {
+    const now = Date.now();
+    if (fullScan || !this.tailer || now - this.lastScan > 4000) {
+      this.lastScan = now;
+      const next = this.pickSession(listSessions(this.dirs), now);
+      if (next && next !== this.tailer?.file) { this.follow(next); return; }
+    }
+    if (this.tailer) this.consume();
+  }
+
+  /**
+   * Which session to show when several are live (e.g. Windows and WSL):
+   * a brand-new session takes over at once (you just started it); an existing
+   * one only once the displayed session has been quiet for a minute, so two
+   * busy sessions don't make the view flip back and forth.
+   */
+  private pickSession(sessions: { file: string; mtimeMs: number }[], now: number): string | undefined {
+    const firstScan = this.known.size === 0;
+    const fresh = sessions.filter((s) => !this.known.has(s.file));
+    for (const s of sessions) this.known.add(s.file);
+    const newest = sessions.reduce<{ file: string; mtimeMs: number } | undefined>((b, s) => (!b || s.mtimeMs > b.mtimeMs ? s : b), undefined);
+    if (!this.tailer || firstScan) return newest?.file;
+    const brandNew = fresh.sort((a, b) => b.mtimeMs - a.mtimeMs)[0];
+    if (brandNew) return brandNew.file;
+    const current = sessions.find((s) => s.file === this.tailer!.file);
+    if (!current || now - current.mtimeMs > 60_000) return newest?.file;
+    return this.tailer.file;
   }
 
   /** Switch to a session file: hand its history to the hub, then tail. */

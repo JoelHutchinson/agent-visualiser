@@ -11,7 +11,7 @@ import { Hub } from './hub.js';
 import { OtelMapper } from '../shared/otel.js';
 import { startOtlpGrpc, startOtlpHttp } from './otlp.js';
 import { startServer } from './server.js';
-import { findNewestSession, readSubagentFiles, TranscriptSource } from './transcripts.js';
+import { discoverWslProjects, findNewestSession, readSubagentFiles, TranscriptSource } from './transcripts.js';
 
 const HELP = `agent-visualiser: watch a coding agent's session as a tiny dev studio
 
@@ -37,7 +37,8 @@ Options:
       --no-open         don't open the browser
       --packs <d>       art packs dir, served at /packs/ (default: $AGENT_VISUALISER_PACKS,
                         ~/.agent-visualiser/packs, or ./packs in the repo)
-      --projects <d>    Claude Code projects dir (default ~/.claude/projects)
+      --projects <d>    Claude Code projects dir, repeatable (default ~/.claude/projects,
+                        plus WSL distros' ~/.claude/projects when on Windows)
   -h, --help
 `;
 
@@ -52,7 +53,7 @@ const { values, positionals } = parseArgs({
     speed: { type: 'string', short: 's', default: '1' },
     loop: { type: 'boolean', default: false },
     'no-open': { type: 'boolean', default: false },
-    projects: { type: 'string', default: path.join(os.homedir(), '.claude', 'projects') },
+    projects: { type: 'string', multiple: true },
     packs: { type: 'string' },
     out: { type: 'string', short: 'o' },
     help: { type: 'boolean', short: 'h', default: false },
@@ -65,7 +66,7 @@ if (values.help) {
 }
 
 if (positionals[0] === 'record') {
-  const src = positionals[1] ?? findNewestSession(values.projects!)?.file;
+  const src = positionals[1] ?? findNewestSession(projectDirs())?.file;
   if (!src) fail('No session file found to record.');
   const rec = parseRecording(fs.readFileSync(src, 'utf8'), readSubagentFiles(src));
   const out = toOtlpRecording(rec);
@@ -105,10 +106,11 @@ if (values.replay) {
   stops.push(() => hub.stop());
 
   if (sourceMode !== 'otel') {
-    const transcripts = new TranscriptSource({ projectsDir: values.projects! }, hub);
+    // Explicit --projects wins; otherwise the Windows/macOS/Linux home plus any running WSL distros.
+    const transcripts = new TranscriptSource({ projectsDir: projectDirs(), discover: values.projects ? undefined : discoverWslProjects }, hub);
     transcripts.start();
     stops.push(() => transcripts.stop());
-    console.log(`Watching Claude Code transcripts in ${values.projects}`);
+    console.log(`Watching Claude Code transcripts in:\n  ${transcripts.folders.join('\n  ')}`);
   }
   if (sourceMode !== 'transcripts') {
     const mapper = new OtelMapper();
@@ -169,6 +171,11 @@ function resolvePacksDir(flag: string | undefined): string | undefined {
   }
   if (flag) console.warn(`--packs ${flag} is not a directory; /packs/ will 404.`);
   return undefined;
+}
+
+function projectDirs(): string[] {
+  if (values.projects?.length) return values.projects;
+  return [path.join(os.homedir(), '.claude', 'projects'), ...discoverWslProjects()];
 }
 
 function parsePort(raw: string, name: string): number {
